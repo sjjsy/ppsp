@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
-ppsp — Post Photoshoot Processing Tool
+ppsp — Post Photoshoot Processing
+
+The ppsp post photoshoot processing tool is for real-estate/architectural photographers who shoot 1000+ images and publish 20–30 finals online and who want an automated CLI oriented tool to help in image batch processing, and the discovery of best processing choices, to ultimately generate the final polished outputs to publish.
 
 (Deprecated) Complete workflow for real-estate / architectural photography:
 1. Lowercase rename (idempotent)
@@ -17,29 +19,39 @@ Motivation and requirements for the project:
 - This tool should help minimize human time spent on this work by helping make all choices among clearly prepared options.
 - It should minimize processing time by only working on downsized data during the discovery and variant generation phase to be fast.
 - The tool should be stateful in that it can be interrupted but it can nonetheless resume or restart a task without much double work. However, it should accept full redo of tasks when requested.
-- It should be verbose and provide elapsed-time reporting.
+- It should be verbose and provide elapsed-time reporting that should help the user also to estimate the time remaining.
 
 TODO:
 - The photo renaming logic should be independent and robust and callable with '-r' or '--rename' but automatically be used within this flow; If camera model or lense ID is missing from EXIF, it should ask the user to supply a default via a CLI argument
 - The stack identification should rely more on ExposureCompensation logic (e.g. 0, -2, +2) rather than time gap only
 - The stacks should be all named after the first photo in the sequence, so e.g. "20260416095559-m4azzz-2501-stack" instead of e.g. stack_123
-- The stack name for each photo should be added into a column (StackName) in the CSV
+- The stack name for each photo should be added into a column (StackName) in the CSV; Note that all CSVs should by default be tab separated.
 - After culling and aligned TIFF generation, the script should
-  - 1) generate very small 1920x1920 versions of the aligned TIFFs and based on those generate many enfuse and hdr-luminance-cli variants (favor processing speed over quality); The tool should have many variant ideas built in and ranked but the user could supply a variants level (0-3) to ask for more or less variants
+  - 1) generate very small (1/8th of the original size) of the aligned TIFFs and based on those generate many enfuse and hdr-luminance-cli variants (favor processing speed over quality);
+    The tool should have many variant ideas built in and ranked but the user could supply a variants level to ask for more or less variants (--variants some/many/all);
+    The tool should by default assume that dcraw tool accepts -h to downsize pixel count to 25% which is good but with "--fast" it should convert the tiffs further down to 1/8th of the original size
   - 2) create a collage version 3840x3840 collage that contains on rows 1-3 downsized versions of the original JPGs, enfuse variants, and hdr-luminance-cli variants with variant name as in-image labels
   - 3) create a stack CSV asking which versions (from the enfuse and hdr variants) to recreate in full resolution and quality for each stack
-  - 4) after user has confirmed having finished editing the CSV, it should read it and execute the recreation, and then use convert (with a parameter variations like (again taking the user supplied variants flag into consideration)
+  - 4) after user has confirmed having finished editing the CSV, it should read it and execute the recreation, and then use convert with a parameter variations like
       neutral: TODO
       warm: TODO
       devivid1: -colorspace sRGB -despeckle -sigmoidal-contrast 3,50% -brightness-contrast 7x-5 -modulate 100,125,100 -unsharp 0x1+0.8+0.05
       devivid2: -colorspace sRGB -despeckle -sigmoidal-contrast 4,45% -brightness-contrast 12x-8 -modulate 100,118,100 -unsharp 0x1.2+0.6+0.05
     and -resize "2048x2048>" -quality "80" -strip
+    Again it should take the user supplied variants flags into consideration.
     to make images that could be immediately published online.
-  - 5) Then it should make an out_full and out_web directories to which it should copy the full quality variants and their
-
-Questions:
-- Currently, HDR Luminance is applied to a specific enfuse output, but I am not sure whether another enfuse output would lead to better results.
-- Could the script automatically detect the average luminosity of an image and intelligently optimize which enfuse, hdr or convert parameter sets (variants) to prioritize
+  - 5) Then it should make an out_full and out_web directories to which it should copy the full quality variants and their web quality finalizations.
+- The file naming should always follow the logic YYYYMMDDHHMMSS-CCC[LLL]-NNNN-[variant].[ext] where variant is a simple letter (a-z) for the original JPGs by the camera from the same camera model, lense serial and second, but other variants of the same image should be named variant1, variant2 and so on.
+  Since many variants are a combination of different processing choices, they should be evident: For example z100-v5selective3-fattal-devivid2-web or z25-v1natural-mantiuk06-neutral-web
+- The flag "--recreate FILE1 FILE2 ..." should allow the user to give the tool as an argument properly named photo file names (with the previously mentioned variant labeling) and ask it to recreate them; From the file name it should determine the file or stack the image should be generated from, and the requested processing sequence (variant label flow); At every step it should check whether a processing output is actually already available to avoid redoing work unnecessarily (unless --redo is given)
+- Cleanup of intermediate processing data (e.g. TIFFs) should only be done when the user requests "--cleanup".
+- The whole tool should be made into a proper pip installable package and tool with tests; The current inp folder in this repo provides data for testing.
+- Write a full README.md that describes the tool's motivation, features, usage and CLI argument possibilities comprehensively
+- Add a proper intro and usage description also to the tool's "--help"
+- The tool should be written with good structure such that many functions and perhaps even a class for a photo and stack file is used along with helper functions to make the implementation easily understandable and concise
+- All classes, functions and processig steps should have concise docstrings and comments with some argumentation
+- It is very possible that later there will be many additions and improvements and extensions to the tool and thus it is beneficial if the design and structuring is clear, robust and extensible
+- Standard python libraries should be preferred, but the specific Linux CLI tools can be expected; It is expected that the user already uses them and this Python script is sort of an "advanced convenience wrapper".
 """
 
 import os, csv, shutil, argparse, subprocess, logging, sys, re, time, glob

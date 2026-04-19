@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ppsp"
+version = "0.1.0"
+description = "Post Photoshoot Processing — CLI tool for architectural photographers"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "Samuel Sydänlammi", email = "samuel.sydanlammi@synsigma.com" }]
+
+[project.scripts]
+ppsp = "ppsp.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff>=0.4"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"

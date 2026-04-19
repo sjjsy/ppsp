@@ -1,0 +1,14 @@
+test_data/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+ppsp.log
+ppsp_photos.csv
+ppsp_generate.csv
+.claude
+CLAUDE.md
+prompting.txt
