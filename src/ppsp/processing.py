@@ -5,11 +5,30 @@ from __future__ import annotations
 import logging
 import shutil
 from pathlib import Path
-from typing import List, Optional
+from collections import defaultdict
+from typing import Dict, List, Optional
 
 from .models import Photo, StackType
 from .util import run_command
 from .variants import ENFUSE_FOCUS, ENFUSE_VARIANTS, GRADING_PRESETS, TMO_VARIANTS
+
+_RAW_EXTS = frozenset({".arw", ".raw", ".cr2", ".nef", ".dng"})
+
+
+def _pick_best_companion(photos: List[Photo]) -> Photo:
+    raw = [p for p in photos if p.ext in _RAW_EXTS]
+    candidates = raw if raw else photos
+    return max(candidates, key=lambda p: p.path.stat().st_size if p.path.exists() else 0)
+
+
+def _deduplicate_companions(photos: List[Photo]) -> List[Photo]:
+    """Keep one file per stem, preferring raw formats over JPEG companions."""
+    by_stem: Dict[str, List[Photo]] = defaultdict(list)
+    for p in photos:
+        by_stem[Path(p.filename).stem].append(p)
+    result = [_pick_best_companion(group) for group in by_stem.values()]
+    result.sort(key=lambda p: p.timestamp)
+    return result
 
 
 def convert_raw_to_tiff(
@@ -288,15 +307,16 @@ def process_stack(
         logging.warning("No source photos for stack %s", stack_name)
         return []
 
+    source_photos = _deduplicate_companions(source_photos)
+
     raw_converter = _get_raw_converter_lazy()
 
     # 1. Convert ARW → TIFF
     tiff_files: List[Path] = []
     for photo in source_photos:
         arw = photo.path
-        if arw.suffix.lower() not in (".arw", ".raw", ".cr2", ".nef", ".dng"):
-            # Use JPEG-like as-is
-            tiff_files.append(arw)
+        if arw.suffix.lower() not in _RAW_EXTS:
+            logging.warning("Skipping non-raw file %s in align_image_stack input", arw.name)
             continue
         if raw_converter is None:
             logging.error("No raw converter available")
