@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    from .models import ChainSpec
 
 
 ENFUSE_VARIANTS: Dict[str, List[str]] = {
@@ -116,19 +119,22 @@ GRADING_PRESETS: Dict[str, List[str]] = {
     ],
 }
 
-# Preset level definitions — see README.md § Variant levels
-VARIANT_LEVELS: Dict[str, Tuple[List[str], List[str]]] = {
+# Preset level definitions: (enfuse_ids, tmo_ids, grading_ids) — see README.md § Variant levels
+VARIANT_LEVELS: Dict[str, Tuple[List[str], List[str], List[str]]] = {
     "some": (
         ["natu", "sel3", "sel4"],
         ["ma06", "fatt", "ferw"],
+        ["neut", "brig", "dvi1"],          # 3 most practically useful for RE/arch
     ),
     "many": (
         ["natu", "sel3", "sel4", "sel6", "cont"],
         ["ma06", "ma08", "fatt", "ferr", "ferw"],
+        ["neut", "warm", "brig", "dvi1", "dvi2"],
     ),
     "all": (
         list(ENFUSE_VARIANTS.keys()),
         list(TMO_VARIANTS.keys()),
+        list(GRADING_PRESETS.keys()),
     ),
 }
 
@@ -142,8 +148,57 @@ ENFUSE_FOCUS: List[str] = [
 ]
 
 
-def expand_variants(level_or_list: str) -> Tuple[List[str], List[str]]:
-    """Expand a preset level name or comma-separated ID list to (enfuse_ids, tmo_ids).
+def parse_full_chain_spec(s: str) -> Optional[ChainSpec]:
+    """Parse a chain spec that includes an explicit z-tier prefix: 'z25-sel4-ma06-dvi1'.
+
+    Returns a ChainSpec with z_tier set, or None if invalid.
+    The z-tier must be one of z100, z25, or z13.
+    """
+    parts = s.strip().split("-", 1)
+    if len(parts) != 2:
+        return None
+    z_tier = parts[0]
+    if z_tier not in ("z100", "z25", "z13"):
+        return None
+    spec = parse_variant_chain(parts[1])
+    if spec is None:
+        return None
+    from .models import ChainSpec as _ChainSpec
+    return _ChainSpec(z_tier=z_tier, enfuse_id=spec.enfuse_id, tmo_id=spec.tmo_id, grading_id=spec.grading_id)
+
+
+def parse_variant_chain(s: str) -> Optional[ChainSpec]:
+    """Parse a compact chain spec like 'sel4-fatt-dvi1' or 'sel4-neut' into a ChainSpec.
+
+    The z_tier is omitted from the spec and must be supplied by the caller at processing time.
+    Returns None if the string cannot be resolved to a valid (enfuse, optional-tmo, grading) chain.
+    """
+    from .models import ChainSpec as _ChainSpec
+
+    parts = s.strip().split("-")
+    if len(parts) == 2:
+        enfuse_id, grading_id = parts
+        tmo_id: Optional[str] = None
+    elif len(parts) == 3:
+        enfuse_id, tmo_id, grading_id = parts
+    else:
+        return None
+
+    if enfuse_id not in ENFUSE_VARIANTS and enfuse_id != "focu":
+        return None
+    if tmo_id is not None and tmo_id not in TMO_VARIANTS:
+        return None
+    if grading_id not in GRADING_PRESETS:
+        return None
+
+    return _ChainSpec(z_tier="", enfuse_id=enfuse_id, tmo_id=tmo_id, grading_id=grading_id)
+
+
+def expand_variants(level_or_list: str) -> Tuple[List[str], List[str], List[str]]:
+    """Expand a preset level or comma-separated ID list to (enfuse_ids, tmo_ids, grading_ids).
+
+    Tokens are classified by which dictionary they appear in; a single token may only belong
+    to one class. Mode 3 (chain specs containing '-') is not handled here — see commands.py.
 
     See README.md § Variant levels for preset definitions.
     """
@@ -153,4 +208,5 @@ def expand_variants(level_or_list: str) -> Tuple[List[str], List[str]]:
     ids = [x.strip() for x in level_or_list.split(",") if x.strip()]
     enfuse_ids = [i for i in ids if i in ENFUSE_VARIANTS]
     tmo_ids = [i for i in ids if i in TMO_VARIANTS]
-    return enfuse_ids, tmo_ids
+    grading_ids = [i for i in ids if i in GRADING_PRESETS]
+    return enfuse_ids, tmo_ids, grading_ids

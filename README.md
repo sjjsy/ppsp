@@ -67,9 +67,15 @@ Running `ppsp` without a command flag walks you through all steps interactively.
 | 4 | `--stacks-prune` | `-p` | Remove stack folders with no surviving preview |
 | 5 | `--stacks-process [STACKS...]` | `-P` | Variant discovery at reduced resolution + collage |
 | 6 | *(manual)* | | Edit `ppsp_generate.csv` — mark variants with `x` |
-| 7 | `--generate FILES/CSV/TXT` | `-g` | Generate variants from chain specifications |
+| 7 | `--generate FOLDER/FILES/CSV/TXT` | `-g` | Generate variants from chain specifications |
 | — | `--arws-enhance [FILES...]` | `-e` | Convert ARW files to enhanced JPGs |
 | — | `--cleanup` | `-C` | Remove intermediate TIFFs from stack folders |
+
+**Generate options** — apply to `--generate`:
+
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--half` | | off | Generate at z25 instead of z100 — reuses discovery intermediates, much faster |
 
 **Global options** — apply to all commands:
 
@@ -215,21 +221,51 @@ This removes the stack directories that no longer have a corresponding preview i
 
 ### Step 5 — Variant discovery (`--stacks-process` / `-P`)
 
-For each surviving stack, convert RAW files at reduced resolution, align the frames with `align_image_stack`, generate all requested enfuse × TMO × grading variant combinations, and assemble a labeled collage.
+For each surviving stack, convert RAW files at reduced resolution, align the frames with `align_image_stack`, generate the requested variants, and assemble a labeled collage.
 
 ```bash
 ppsp --stacks-process                                                  # z25, 'some' variants
 ppsp -P 20260416095559-m4azzz-2126-stack                               # one specific stack
 ppsp --stacks-process --fast --variants many --quality 70              # z13, 25 combos
-ppsp --stacks-process --variants natu,sel3,fatt,ma06                   # custom selection
+ppsp --stacks-process --variants natu,sel3,fatt,ma06                   # custom ID selection
+ppsp --stacks-process --variants sel4-fatt-dvi1,sel4-fatt-neut,sel4-ma06-dvi1  # exact chains
 ```
 
 #### Variant discovery options
 
 | Flag | Short | Default | Description |
 |---|---|---|---|
-| `--variants LEVEL_OR_LIST` | `-V` | `some` | Preset level (`some`/`many`/`all`) or comma-separated IDs |
+| `--variants SPEC` | `-V` | `some` | What to generate — see the three modes below |
 | `--fast` | `-f` | off | Use z13 resolution instead of z25 |
+
+#### Three ways to specify variants
+
+**Mode 1 — Preset level** (`some` / `many` / `all`): runs the cross-product of all enfuse IDs × all TMO IDs × all 6 grading presets for the chosen level.
+
+```bash
+ppsp --stacks-process --variants some    # default: 3 enfuse × 3 TMO × 6 gradings = 54 combos
+ppsp --stacks-process --variants many    # 5 enfuse × 5 TMO × 6 gradings = 150 combos
+ppsp --stacks-process --variants all     # all 9 enfuse × all 5 TMO × 6 gradings = 270 combos
+```
+
+**Mode 2 — Comma-separated IDs** (no `-` in any token): selects which enfuse, TMO, and grading IDs to include, then runs the cross-product. If no grading IDs are given, all 6 presets are used; otherwise only the listed ones.
+
+```bash
+ppsp --stacks-process --variants natu,sel3,fatt,ma06
+# → enfuse: [natu, sel3]  TMO: [fatt, ma06]  gradings: all 6 → 24 variants
+
+ppsp --stacks-process --variants sel3,fatt,ma06,dvi1
+# → enfuse: [sel3]  TMO: [fatt, ma06]  gradings: [dvi1] → 2 variants
+```
+
+**Mode 3 — Exact chain specs** (any token contains `-`): generates precisely those chains, one output file per spec. The format per spec is `{enfuse-id}-{grading-id}` or `{enfuse-id}-{tmo-id}-{grading-id}`.
+
+```bash
+ppsp --stacks-process --variants sel4-fatt-dvi1,sel4-fatt-neut,sel4-ma06-dvi1
+# → exactly 3 variants per stack, with exactly those processing chains
+```
+
+This mode is useful when you already know which chains you want — for example, after a previous discovery run — and want to skip the full cross-product.
 
 #### Resolution tiers
 
@@ -241,15 +277,15 @@ The z-tier label is encoded in every output filename. `--generate` uses whatever
 | `z25` | ≈25 % | `dcraw -h`; default for discovery |
 | `z13` | ≈12.5 % | `dcraw -h` then `mogrify -resize 50%`; selected with `--fast` |
 
-#### Variant levels
+#### Preset variant levels (Mode 1)
 
-Each enfuse variant is combined with each TMO variant to produce the full cross-product. Supply a comma-separated list of IDs to select exactly which enfuse and/or TMO variants to run:
+Each preset also includes a default set of grading presets. Variants = (enfuse × gradings) + (enfuse × TMO × gradings).
 
-| Level | Enfuse IDs | TMO IDs | Combinations |
-|---|---|---|---|
-| `some` *(default)* | `natu`, `sel3`, `sel4` | `ma06`, `fatt`, `ferw` | 9 |
-| `many` | `natu`, `sel3`, `sel4`, `sel6`, `cont` | `ma06`, `ma08`, `fatt`, `ferr`, `ferw` | 25 |
-| `all` | all nine | all five | 45 |
+| Level | Enfuse IDs | TMO IDs | Grading IDs | Total variants |
+|---|---|---|---|---|
+| `some` *(default)* | `natu`, `sel3`, `sel4` | `ma06`, `fatt`, `ferw` | `neut`, `brig`, `dvi1` | 36 |
+| `many` | `natu`, `sel3`, `sel4`, `sel6`, `cont` | `ma06`, `ma08`, `fatt`, `ferr`, `ferw` | `neut`, `warm`, `brig`, `dvi1`, `dvi2` | 150 |
+| `all` | all nine | all five | all six | 540 |
 
 #### Enfuse variants
 
@@ -294,49 +330,126 @@ Applied via ImageMagick `convert` as the final stage after fusion/TMO:
 | `dvi1` | Punchy and vivid, strong saturation | `-colorspace sRGB -despeckle -sigmoidal-contrast 3,50% -brightness-contrast 7x-5 -modulate 100,125,100 -unsharp 0x1+0.8+0.05` |
 | `dvi2` | Very vivid, high local contrast | `-colorspace sRGB -despeckle -sigmoidal-contrast 4,45% -brightness-contrast 12x-8 -modulate 100,118,100 -unsharp 0x1.2+0.6+0.05` |
 
+#### Output structure after discovery
+
+Each stack's discovery variants — and all combined intermediates — are written into a z-tier subfolder (`z25/` or `z13/`) inside the stack directory. Only the per-frame source files (ARW, JPG companions, and their raw-converted TIFs) stay in the stack root. The collage is also written into the z-tier subfolder. Alongside this, `ppsp` creates a flat `variants/` folder at the shoot root containing hard links (fallback: copies) to every variant and collage from all stacks — this is the folder you browse and cull from.
+
+```
+shoot/
+├── 20260416095559-m4azzz-2126-stack/
+│   ├── 20260416095559-m4azzz-2126-a.arw          ← per-frame source files stay in root
+│   ├── 20260416095559-m4azzz-2126-a-z25.tif      ← per-frame raw-converted TIF stays in root
+│   └── z25/                                       ← all combined outputs here
+│       ├── 20260416095559-m4azzz-2126-z25-aligned0000.tif   ← aligned (removed by --cleanup)
+│       ├── 20260416095559-m4azzz-2126-z25-aligned0001.tif
+│       ├── 20260416095559-m4azzz-2126-z25-sel4.tif          ← enfuse temp (removed by --cleanup)
+│       ├── 20260416095559-m4azzz-2126-z25-sel4-fatt.jpg     ← TMO temp (removed by --cleanup)
+│       ├── 20260416095559-m4azzz-2126-z25-sel3-fatt-dvi1.jpg
+│       ├── 20260416095559-m4azzz-2126-z25-sel4-ma06-neut.jpg
+│       ├── ...
+│       └── 20260416095559-m4azzz-2126-stack-collage.jpg
+└── variants/                                      ← hard links to variants + collages
+    ├── 20260416095559-m4azzz-2126-z25-sel3-fatt-dvi1.jpg
+    ├── 20260416095559-m4azzz-2126-stack-collage.jpg
+    └── ...
+```
+
 #### Collage
 
-After all variants for a stack are produced, a single `<stack-name>-collage.jpg` (3840×3840) is written into the stack folder. Row 1 shows the original JPGs from the stack, Row 2 the enfuse outputs, Row 3 the tone-mapped outputs (omitted for focus stacks). Each tile is downsized to fit the 3840 px width and labeled with its variant chain.
+After all variants for a stack are produced, a single `<stack-name>-collage.jpg` is written into the z-tier subfolder alongside the variants. All tiles (originals first, then variants) are arranged in a grid whose dimensions are chosen to approximate a 16:9 aspect ratio. Each tile is 640 px wide (preserving the source aspect ratio) and labeled with its chain identifier (`z25-sel3-fatt-dvi2`) in 32 pt white text overlaid at the bottom center of the tile.
 
 ### Step 6 — Variant selection
 
-After discovery, `ppsp` writes `ppsp_generate.csv`. The file is tab-separated; open it in any spreadsheet application or text editor.
+After discovery, browse the `variants/` folder with any image viewer (e.g. `eog variants/ &`). Two selection methods are available; `ppsp` asks you to choose when running interactively.
 
-#### ppsp_generate.csv
+#### Method A — Folder-based (recommended)
+
+Simply delete the variants you do **not** want from `variants/`. Because these are hard links, the originals in the stack's z-tier subfolder are unaffected — you are only removing entries from the selection set.
+
+```bash
+# Delete unwanted variants, e.g.:
+rm variants/*-natu-*.jpg
+rm variants/*-collage.jpg
+# Then generate what remains:
+ppsp --generate variants/
+```
+
+#### Method B — CSV-based
+
+`ppsp` also writes `ppsp_generate.csv` (tab-separated). Open it in any spreadsheet or editor and mark desired variants with `x` in the `Generate` column.
 
 | Column | Description |
 |---|---|
-| `Filename` | Target filename including the full variant chain |
+| `Filename` | Full-resolution target filename (`z100`) |
 | `Generate` | `-` (skip) or `x` (generate) |
-
-Every row has `Generate` set to `-` by default — change it to `x` for each variant you want generated. You may also add new rows with custom variant chains; the tool will generate those too.
 
 ```
 Filename	Generate
 20260416095559-m4azzz-2126-z100-sel3-fatt-dvi2.jpg	-
-20260416095559-m4azzz-2126-z100-sel4-ma06-dvi1.jpg	-
+20260416095559-m4azzz-2126-z100-sel4-ma06-dvi1.jpg	x
 ```
 
-Note that the filenames pre-filled by `ppsp` use `z100` — these are the full-resolution targets that do not yet exist. The discovery variants (at `z25` or `z13`) live in the stack folder and served their purpose as previews.
+```bash
+ppsp --generate ppsp_generate.csv
+```
 
 ### Step 7 — Generate variants (`--generate` / `-g`)
 
-Reads the selection file (or explicit filenames or a plain TXT file) and generates all marked variants. The z-tier, enfuse variant, TMO, and grading preset are parsed from each filename's chain and executed in sequence, skipping any intermediate that already exists (unless `--redo`). Outputs land in `out_full/` and `out_web/`.
+Generates outputs from the surviving selection. The z-tier is read from each target's chain and executed in sequence, skipping any intermediate that already exists (unless `--redo`). Outputs land in `out_full/` and `out_web/`.
 
 ```bash
-ppsp --generate ppsp_generate.csv                                      # from selection CSV
+ppsp --generate variants/                                              # Method A: folder → z100
+ppsp --generate variants/ --half                                        # Method A: folder → z25
+ppsp --generate ppsp_generate.csv                                      # Method B: CSV
 ppsp -g my_selection.txt                                               # one filename per line
-ppsp --generate 20260416095559-m4azzz-2126-z100-sel3-fatt-dvi2.jpg    # direct
-ppsp --generate ppsp_generate.csv --redo                               # force all intermediates
+ppsp --generate 20260416095559-m4azzz-2126-z100-sel3-fatt-dvi2.jpg    # direct filename
+ppsp --generate z25-sel4-ma06-dvi1                                     # chain spec, all stacks
+ppsp --generate variants/ --redo                                        # force regeneration
 ```
 
 `out_full/` holds the generated JPEG at quality 95. `out_web/` holds a web-ready copy (max 2048 px, quality 80, `-strip`).
+
+#### Chain spec syntax
+
+Pass one or more z-tier chain specs directly as arguments. Each spec is expanded to all stacks under `--source` — no need to list individual files:
+
+```bash
+ppsp --generate z25-sel4-ma06-dvi1                      # one chain, all stacks, at z25
+ppsp --generate z100-sel4-ma06-dvi1                     # same chain at full resolution
+ppsp --generate z25-sel4-ma06-dvi1 z100-natu-neut       # two chains across all stacks
+ppsp --generate z25-focu-neut                           # focus stack chain, all stacks
+```
+
+Form: `{z-tier}-{enfuse-id}-{grading-id}` or `{z-tier}-{enfuse-id}-{tmo-id}-{grading-id}`. All component IDs must be valid (see tables above). The embedded z-tier is used directly — `--half` is not needed.
+
+#### `--half` — z25 for directory scans
+
+When scanning a directory (e.g. `variants/`), filenames are converted to z100 by default. Pass `--half` to keep them at z25 and reuse all discovery-phase intermediates:
+
+```bash
+ppsp --stacks-process --fast        # z13 discovery; z25 TIFFs also saved as side-effect
+ppsp --generate variants/ --half    # grade to z25 at quality 95 — reuses all intermediates
+```
+
+#### CSV and TXT — z-tier from each filename
+
+When reading from a CSV or TXT file, filenames are used exactly as written. The z-tier in each filename drives which intermediates are reused, so a single CSV can mix tiers:
+
+```
+Filename	Generate
+20260416095559-m4azzz-2126-z25-sel4-ma06-dvi1.jpg	x
+20260416095559-m4azzz-2127-z100-natu-neut.jpg	x
+```
+
+```bash
+ppsp --generate my_selection.csv    # no --half needed; z-tier from each filename
+```
 
 ## Additional commands
 
 `--arws-enhance [FILES...]` (`-e`) converts individual ARW files to high-quality enhanced JPGs without stacking or grading. Defaults to all ARWs under `--source`.
 
-`--cleanup` (`-C`) removes intermediate TIFFs (`aligned_*`, `temp_*`) from all stack folders under `--source`. Run this after generation is complete and you no longer need to regenerate variants.
+`--cleanup` (`-C`) removes intermediate files from all z-tier subfolders under `--source`: all TIFFs (aligned frames + enfuse temps) and TMO temp JPGs (identified by having a TMO id as their last chain component rather than a grading id). Final variant JPGs and collages are preserved. Run this after generation is complete and you no longer need to regenerate variants.
 
 ## Output structure
 
@@ -347,13 +460,19 @@ shoot/
 ├── ppsp.log                              # Full run log
 ├── cull/                                 # One labeled preview per stack
 │   └── 20260416095559-m4azzz-2126-stack_count5.jpg
+├── variants/                             # Hard links to all discovery variants + collages
+│   ├── 20260416095559-m4azzz-2126-z25-sel3-fatt-dvi1.jpg
+│   └── 20260416095559-m4azzz-2126-stack-collage.jpg
 ├── 20260416095559-m4azzz-2126-stack/     # One folder per stack
-│   ├── 20260416095559-m4azzz-2126-a.arw
-│   ├── ...
-│   ├── 20260416095559-m4azzz-2126-z25-sel3-fatt-dvi2.jpg
-│   ├── 20260416095559-m4azzz-2126-collage.jpg
-│   └── ...
-├── out_full/                             # Full-quality finals
+│   ├── 20260416095559-m4azzz-2126-a.arw  # Per-frame source files stay in root
+│   ├── 20260416095559-m4azzz-2126-a-z25.tif  # Per-frame raw-converted TIF
+│   └── z25/                             # All combined outputs: intermediates + variants + collage
+│       ├── *-z25-aligned0000.tif         # Aligned TIFs (removed by --cleanup)
+│       ├── *-z25-sel4.tif               # Enfuse temp TIF (removed by --cleanup)
+│       ├── *-z25-sel4-fatt.jpg          # TMO temp JPG (removed by --cleanup)
+│       ├── 20260416095559-m4azzz-2126-z25-sel3-fatt-dvi1.jpg
+│       └── 20260416095559-m4azzz-2126-stack-collage.jpg
+├── out_full/                             # Full-quality finals (from --generate)
 │   └── 20260416095559-m4azzz-2126-z100-sel3-fatt-dvi2.jpg
 └── out_web/                              # Web-ready finals
     └── 20260416095559-m4azzz-2126-z100-sel3-fatt-dvi2-web.jpg

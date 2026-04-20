@@ -10,39 +10,64 @@ from ppsp.variants import (
     TMO_VARIANTS,
     VARIANT_LEVELS,
     expand_variants,
+    parse_full_chain_spec,
+    parse_variant_chain,
 )
 
 
 def test_expand_variants_some():
-    enfuse_ids, tmo_ids = expand_variants("some")
+    enfuse_ids, tmo_ids, grading_ids = expand_variants("some")
     assert set(enfuse_ids) == {"natu", "sel3", "sel4"}
     assert set(tmo_ids) == {"ma06", "fatt", "ferw"}
+    assert set(grading_ids) == {"neut", "brig", "dvi1"}
 
 
 def test_expand_variants_many():
-    enfuse_ids, tmo_ids = expand_variants("many")
+    enfuse_ids, tmo_ids, grading_ids = expand_variants("many")
     assert set(enfuse_ids) == {"natu", "sel3", "sel4", "sel6", "cont"}
     assert set(tmo_ids) == {"ma06", "ma08", "fatt", "ferr", "ferw"}
+    assert len(grading_ids) == 5
+    assert "deno" not in grading_ids
 
 
 def test_expand_variants_all():
-    enfuse_ids, tmo_ids = expand_variants("all")
+    enfuse_ids, tmo_ids, grading_ids = expand_variants("all")
     assert set(enfuse_ids) == set(ENFUSE_VARIANTS.keys())
     assert set(tmo_ids) == set(TMO_VARIANTS.keys())
+    assert set(grading_ids) == set(GRADING_PRESETS.keys())
 
 
-def test_expand_variants_custom_list():
-    enfuse_ids, tmo_ids = expand_variants("natu,sel3,fatt,ma06")
+def test_expand_variants_custom_list_with_grading():
+    enfuse_ids, tmo_ids, grading_ids = expand_variants("natu,sel3,fatt,ma06,dvi1")
     assert set(enfuse_ids) == {"natu", "sel3"}
     assert set(tmo_ids) == {"fatt", "ma06"}
+    assert set(grading_ids) == {"dvi1"}
+
+
+def test_expand_variants_custom_list_no_grading():
+    """When no grading IDs are given, grading_ids is empty — callers fall back to all presets."""
+    enfuse_ids, tmo_ids, grading_ids = expand_variants("natu,sel3,fatt,ma06")
+    assert set(enfuse_ids) == {"natu", "sel3"}
+    assert set(tmo_ids) == {"fatt", "ma06"}
+    assert grading_ids == []
 
 
 def test_expand_variants_unknown_ignored():
-    enfuse_ids, tmo_ids = expand_variants("natu,unknownXXX,fatt")
+    enfuse_ids, tmo_ids, grading_ids = expand_variants("natu,unknownXXX,fatt")
     assert "unknownXXX" not in enfuse_ids
     assert "unknownXXX" not in tmo_ids
+    assert "unknownXXX" not in grading_ids
     assert "natu" in enfuse_ids
     assert "fatt" in tmo_ids
+
+
+def test_expand_variants_single_grading_two_variants():
+    """sel3,fatt,ma06,dvi1 → enfuse:[sel3] tmo:[fatt,ma06] grading:[dvi1] → 2 TMO variants."""
+    enfuse_ids, tmo_ids, grading_ids = expand_variants("sel3,fatt,ma06,dvi1")
+    assert enfuse_ids == ["sel3"]
+    assert set(tmo_ids) == {"fatt", "ma06"}
+    assert grading_ids == ["dvi1"]
+    # 1 enfuse × 2 TMO × 1 grading = 2 TMO variants, plus 1 enfuse-only variant
 
 
 def test_all_enfuse_ids_have_params():
@@ -61,3 +86,131 @@ def test_all_grading_ids_have_params():
     for gid, params in GRADING_PRESETS.items():
         assert isinstance(params, list), f"{gid} params not a list"
         assert len(params) > 0, f"{gid} has empty params"
+
+
+# ---------------------------------------------------------------------------
+# parse_variant_chain
+# ---------------------------------------------------------------------------
+
+
+def test_parse_chain_with_tmo():
+    spec = parse_variant_chain("sel4-fatt-dvi1")
+    assert spec is not None
+    assert spec.enfuse_id == "sel4"
+    assert spec.tmo_id == "fatt"
+    assert spec.grading_id == "dvi1"
+    assert spec.z_tier == ""
+
+
+def test_parse_chain_without_tmo():
+    spec = parse_variant_chain("sel4-neut")
+    assert spec is not None
+    assert spec.enfuse_id == "sel4"
+    assert spec.tmo_id is None
+    assert spec.grading_id == "neut"
+
+
+def test_parse_chain_natu_ma06_warm():
+    spec = parse_variant_chain("natu-ma06-warm")
+    assert spec is not None
+    assert spec.enfuse_id == "natu"
+    assert spec.tmo_id == "ma06"
+    assert spec.grading_id == "warm"
+
+
+def test_parse_chain_focu_focus_stack():
+    spec = parse_variant_chain("focu-neut")
+    assert spec is not None
+    assert spec.enfuse_id == "focu"
+    assert spec.tmo_id is None
+    assert spec.grading_id == "neut"
+
+
+def test_parse_chain_invalid_enfuse_id():
+    assert parse_variant_chain("badid-fatt-dvi1") is None
+
+
+def test_parse_chain_invalid_tmo_id():
+    assert parse_variant_chain("sel4-badtmo-dvi1") is None
+
+
+def test_parse_chain_invalid_grading_id():
+    assert parse_variant_chain("sel4-fatt-badgrading") is None
+
+
+def test_parse_chain_too_short():
+    assert parse_variant_chain("sel4") is None
+
+
+def test_parse_chain_too_many_parts():
+    assert parse_variant_chain("sel4-fatt-dvi1-extra") is None
+
+
+def test_parse_chain_user_example():
+    """The three chains from the feature request all parse correctly."""
+    specs = [
+        parse_variant_chain("sel4-fatt-dvi1"),
+        parse_variant_chain("sel4-fatt-neut"),
+        parse_variant_chain("sel4-ma06-dvi1"),
+    ]
+    assert all(s is not None for s in specs)
+    assert specs[0].tmo_id == "fatt" and specs[0].grading_id == "dvi1"
+    assert specs[1].tmo_id == "fatt" and specs[1].grading_id == "neut"
+    assert specs[2].tmo_id == "ma06" and specs[2].grading_id == "dvi1"
+
+
+# ---------------------------------------------------------------------------
+# parse_full_chain_spec
+# ---------------------------------------------------------------------------
+
+
+def test_parse_full_chain_spec_with_tmo():
+    spec = parse_full_chain_spec("z25-sel4-ma06-dvi1")
+    assert spec is not None
+    assert spec.z_tier == "z25"
+    assert spec.enfuse_id == "sel4"
+    assert spec.tmo_id == "ma06"
+    assert spec.grading_id == "dvi1"
+
+
+def test_parse_full_chain_spec_without_tmo():
+    spec = parse_full_chain_spec("z100-sel4-neut")
+    assert spec is not None
+    assert spec.z_tier == "z100"
+    assert spec.enfuse_id == "sel4"
+    assert spec.tmo_id is None
+    assert spec.grading_id == "neut"
+
+
+def test_parse_full_chain_spec_z13():
+    spec = parse_full_chain_spec("z13-natu-fatt-brig")
+    assert spec is not None
+    assert spec.z_tier == "z13"
+    assert spec.enfuse_id == "natu"
+    assert spec.tmo_id == "fatt"
+    assert spec.grading_id == "brig"
+
+
+def test_parse_full_chain_spec_focu():
+    spec = parse_full_chain_spec("z25-focu-neut")
+    assert spec is not None
+    assert spec.z_tier == "z25"
+    assert spec.enfuse_id == "focu"
+    assert spec.tmo_id is None
+    assert spec.grading_id == "neut"
+
+
+def test_parse_full_chain_spec_invalid_ztier():
+    assert parse_full_chain_spec("z99-sel4-ma06-dvi1") is None
+
+
+def test_parse_full_chain_spec_no_ztier():
+    assert parse_full_chain_spec("sel4-ma06-dvi1") is None
+
+
+def test_parse_full_chain_spec_invalid_chain():
+    assert parse_full_chain_spec("z25-badid-ma06-dvi1") is None
+
+
+def test_parse_full_chain_spec_too_short():
+    assert parse_full_chain_spec("z25-sel4") is None

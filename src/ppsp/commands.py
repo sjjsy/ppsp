@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 from pathlib import Path
 from typing import List, Optional
@@ -32,7 +33,7 @@ from .stacking import (
     photos_from_csv_rows,
 )
 from .util import get_raw_converter, run_command
-from .variants import GRADING_PRESETS, TMO_VARIANTS, expand_variants
+from .variants import GRADING_PRESETS, TMO_VARIANTS, expand_variants, parse_full_chain_spec, parse_variant_chain
 
 _PHOTOS_CSV = "ppsp_photos.csv"
 _GENERATE_CSV = "ppsp_generate.csv"
@@ -355,7 +356,23 @@ def cmd_stacks_process(
     redo: bool = False,
 ) -> None:
     """Run variant discovery for each stack and write ppsp_generate.csv — see README.md § Step 5."""
-    enfuse_ids, tmo_ids = expand_variants(variants_arg)
+    tokens = [t.strip() for t in variants_arg.split(",") if t.strip()]
+    chain_specs: List[ChainSpec] = []
+    grading_ids: List[str] = []
+    if any("-" in t for t in tokens):
+        # Mode 3: exact chain specs
+        for t in tokens:
+            spec = parse_variant_chain(t)
+            if spec is not None:
+                chain_specs.append(spec)
+            else:
+                logging.warning("Unknown chain spec '%s' in --variants, skipping", t)
+        enfuse_ids: List[str] = []
+        tmo_ids: List[str] = []
+    else:
+        # Mode 1 (preset) or Mode 2 (bare IDs)
+        enfuse_ids, tmo_ids, grading_ids = expand_variants(variants_arg)
+
     z_tier = "z13" if fast else "z25"
 
     if stacks:
@@ -405,10 +422,29 @@ def cmd_stacks_process(
             z_tier=z_tier,
             quality=quality,
             source_photos=source_photos,
+            grading_ids=grading_ids if grading_ids else None,
+            chain_specs=chain_specs,
             redo=redo,
         )
         all_generated.extend(generated)
         logging.info("Stack %s: %d variants generated", stack_name, len(generated))
+
+        # Hard-link variants + collage into source/variants/ for easy culling
+        variants_dir = source / "variants"
+        variants_dir.mkdir(exist_ok=True)
+        output_dir = stack_dir / z_tier
+        collage_name = f"{stack_name}-collage.jpg"
+        for name in list(generated) + [collage_name]:
+            src_path = output_dir / name
+            if not src_path.exists():
+                continue
+            dst_path = variants_dir / name
+            if dst_path.exists():
+                continue
+            try:
+                os.link(src_path, dst_path)
+            except OSError:
+                shutil.copy2(src_path, dst_path)
 
     # Write ppsp_generate.csv (z100 versions)
     gen_csv_path = source / _GENERATE_CSV
@@ -460,10 +496,42 @@ def _write_generate_csv(csv_path: Path, generated: List[str], redo: bool) -> Non
             writer.writerow({"Filename": filename, "Generate": gen})
 
 
-def _to_z100(filename: str) -> str:
-    """Replace z-tier prefix with z100 in a variant filename."""
+def _looks_like_chain_spec(s: str) -> bool:
+    """Return True if s is a z-tier chain spec (e.g. z25-sel4-ma06-dvi1), not a file path."""
     import re
-    return re.sub(r"-z(100|25|13)-", "-z100-", filename, count=1)
+    return bool(re.match(r"^z(100|25|13)-", s)) and "/" not in s and "\\" not in s
+
+
+def _expand_chain_spec_to_all_stacks(spec: "ChainSpec", source: Path) -> List[str]:
+    """Return one canonical filename per stack under source for the given chain spec."""
+    stack_dirs = sorted(d for d in source.iterdir() if d.is_dir() and d.name.endswith("-stack"))
+    if not stack_dirs:
+        logging.warning("No stack directories found under %s", source)
+    filenames = []
+    for stack_dir in stack_dirs:
+        base = stack_dir.name[: -len("-stack")]
+        if spec.tmo_id:
+            name = f"{base}-{spec.z_tier}-{spec.enfuse_id}-{spec.tmo_id}-{spec.grading_id}.jpg"
+        else:
+            name = f"{base}-{spec.z_tier}-{spec.enfuse_id}-{spec.grading_id}.jpg"
+        filenames.append(name)
+    return filenames
+
+
+def _to_ztier(filename: str, z_tier: str) -> str:
+    """Replace the z-tier token in a variant filename with the requested tier."""
+    import re
+    return re.sub(r"-z(100|25|13)-", f"-{z_tier}-", filename, count=1)
+
+
+def _has_ztier(filename: str) -> bool:
+    """Return True if filename contains a z-tier token (-z100-, -z25-, or -z13-)."""
+    import re
+    return bool(re.search(r"-z(100|25|13)-", filename))
+
+
+def _to_z100(filename: str) -> str:
+    return _to_ztier(filename, "z100")
 
 
 # ---------------------------------------------------------------------------
@@ -476,9 +544,15 @@ def cmd_generate(
     source: Path,
     quality: int = 95,
     redo: bool = False,
+    half: bool = False,
 ) -> None:
-    """Generate full-quality variants from chain filenames, CSV, or TXT — see README.md § Step 7."""
-    filenames = _resolve_generate_targets(targets, source)
+    """Generate variants from chain filenames, CSV, or TXT — see README.md § Step 7.
+
+    With half=True, generates at z25 (dcraw -h) instead of z100 (full resolution).
+    All z25 intermediates from the discovery phase are reused automatically.
+    """
+    z_tier = "z25" if half else "z100"
+    filenames = _resolve_generate_targets(targets, source, z_tier=z_tier)
     if not filenames:
         logging.warning("No generate targets found")
         return
@@ -498,15 +572,51 @@ def cmd_generate(
     logging.info("Generate complete")
 
 
-def _resolve_generate_targets(targets: List[str], source: Path) -> List[str]:
-    """Resolve targets to a flat list of filenames."""
+def _resolve_generate_targets(
+    targets: List[str],
+    source: Path,
+    z_tier: str = "z100",
+) -> List[str]:
+    """Resolve targets to a flat list of filenames to generate.
+
+    Accepted forms:
+      - z-tier chain spec (e.g. 'z25-sel4-ma06-dvi1'): expand to all stacks under source.
+      - A directory path: scan for *.jpg with a z-tier token, convert each to z_tier.
+      - A .csv path: rows where Generate == 'x'; filenames read as-is (z-tier from filename).
+      - A .txt path: one filename per line, read as-is.
+      - Direct filenames on the command line.
+    Multiple chain specs may be passed together; they are each expanded across all stacks.
+    """
     import csv as _csv
 
+    # If every target is a chain spec, expand them all to all stacks.
+    # Also handle the common single-chain-spec case here before file checks.
+    if targets and all(_looks_like_chain_spec(t) for t in targets):
+        filenames = []
+        for t in targets:
+            spec = parse_full_chain_spec(t)
+            if spec is not None:
+                filenames.extend(_expand_chain_spec_to_all_stacks(spec, source))
+            else:
+                logging.warning("Cannot parse chain spec '%s', skipping", t)
+        return filenames
+
+    # Single-target special cases: directory, CSV, TXT
     if len(targets) == 1:
         t = targets[0]
         p = Path(t)
         if not p.is_absolute():
             p = source / t
+
+        if p.is_dir():
+            filenames = []
+            for f in sorted(p.glob("*.jpg")):
+                if _has_ztier(f.name):
+                    filenames.append(_to_ztier(f.name, z_tier))
+            if not filenames:
+                logging.warning("No variant JPGs found in %s", p)
+            return filenames
+
         if p.suffix.lower() == ".csv" and p.exists():
             with open(p, encoding="utf-8", newline="") as fh:
                 return [
@@ -514,9 +624,22 @@ def _resolve_generate_targets(targets: List[str], source: Path) -> List[str]:
                     for row in _csv.DictReader(fh, delimiter="\t")
                     if row.get("Generate", "").strip().lower() == "x"
                 ]
+
         if p.suffix.lower() == ".txt" and p.exists():
             return [ln.strip() for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
-    return list(targets)
+
+    # Multiple targets: process each — chain specs expand, everything else is a filename.
+    filenames = []
+    for t in targets:
+        if _looks_like_chain_spec(t):
+            spec = parse_full_chain_spec(t)
+            if spec is not None:
+                filenames.extend(_expand_chain_spec_to_all_stacks(spec, source))
+            else:
+                logging.warning("Cannot parse chain spec '%s', skipping", t)
+        else:
+            filenames.append(t)
+    return filenames
 
 
 def _generate_one(
@@ -553,10 +676,15 @@ def _generate_one(
         logging.error("No raw converter available for %s", filename)
         return
 
-    # Step 1: convert
+    # Combined outputs live in the z-tier subfolder (mirrors process_stack layout)
+    out_base = "-".join(parts[:3])  # e.g. "20260411152701-m4aens-2324"
+    z_dir = stack_dir / spec.z_tier
+    z_dir.mkdir(exist_ok=True)
+
+    # Step 1: convert — per-frame TIFs stay in stack root alongside the ARWs
     tiff_files: List[Path] = []
     for arw in arws:
-        out_tif = stack_dir / f"{arw.stem}_{spec.z_tier}.tif"
+        out_tif = stack_dir / f"{arw.stem}-{spec.z_tier}.tif"
         ok = convert_raw_to_tiff(arw, out_tif, spec.z_tier, raw_converter, redo=redo)
         if ok:
             tiff_files.append(out_tif)
@@ -565,24 +693,28 @@ def _generate_one(
         logging.error("No TIFFs produced for %s", filename)
         return
 
-    # Step 2: align
-    align_prefix = str(stack_dir / f"aligned_{spec.z_tier}_")
-    is_hdr = spec.tmo_id is not None
-    aligned = align_stack(tiff_files, align_prefix, is_hdr=is_hdr, redo=redo)
-    if not aligned:
-        logging.error("Alignment failed for %s", filename)
-        return
+    # Step 2: align — skipped for single-frame stacks; aligned TIFs go into z_dir
+    if len(tiff_files) < 2:
+        logging.info("Single-frame stack — skipping alignment for %s", filename)
+        aligned = tiff_files
+    else:
+        align_prefix = str(z_dir / f"{out_base}-{spec.z_tier}-aligned")
+        is_hdr = spec.tmo_id is not None
+        aligned = align_stack(tiff_files, align_prefix, is_hdr=is_hdr, redo=redo)
+        if not aligned:
+            logging.error("Alignment failed for %s", filename)
+            return
 
-    # Step 3: enfuse
-    enfuse_tif = stack_dir / f"temp_{spec.z_tier}_{spec.enfuse_id}.tif"
+    # Step 3: enfuse — temp TIF goes into z_dir
+    enfuse_tif = z_dir / f"{out_base}-{spec.z_tier}-{spec.enfuse_id}.tif"
     ok = run_enfuse(aligned, enfuse_tif, spec.enfuse_id, redo=redo)
     if not ok:
         logging.error("Enfuse failed for %s", filename)
         return
 
-    # Step 4: TMO (optional)
+    # Step 4: TMO (optional) — temp JPG goes into z_dir
     if spec.tmo_id:
-        tmo_jpg = stack_dir / f"temp_{spec.z_tier}_{spec.enfuse_id}_{spec.tmo_id}.jpg"
+        tmo_jpg = z_dir / f"{out_base}-{spec.z_tier}-{spec.enfuse_id}-{spec.tmo_id}.jpg"
         ok = run_tmo(enfuse_tif, tmo_jpg, spec.tmo_id, quality, redo=redo)
         if not ok:
             logging.error("TMO failed for %s", filename)
@@ -591,9 +723,9 @@ def _generate_one(
     else:
         grading_src = enfuse_tif
 
-    # Step 5: grading
+    # Step 5: grading — staged final JPG also goes into z_dir
     out_name = Path(filename).name
-    final_jpg = stack_dir / out_name
+    final_jpg = z_dir / out_name
     ok = apply_grading(grading_src, final_jpg, spec.grading_id, quality, redo=redo)
     if not ok:
         logging.error("Grading failed for %s", filename)
@@ -645,16 +777,28 @@ def cmd_arws_enhance(
 
 
 def cmd_cleanup(source: Path) -> None:
-    """Remove intermediate TIFFs from stack directories — see README.md § cleanup."""
+    """Remove intermediate files from z-tier subfolders in stack directories — see README.md § cleanup."""
+    from .variants import GRADING_PRESETS
+    grading_ids = set(GRADING_PRESETS.keys())
     removed = 0
     for stack_dir in source.iterdir():
         if not stack_dir.is_dir() or not stack_dir.name.endswith("-stack"):
             continue
-        for pattern in ("aligned_*.tif", "temp_*.tif", "aligned_*.tiff", "temp_*.tiff"):
-            for f in stack_dir.glob(pattern):
-                f.unlink(missing_ok=True)
-                removed += 1
-    logging.info("Cleanup removed %d intermediate TIFFs", removed)
+        for z_dir in stack_dir.iterdir():
+            if not z_dir.is_dir() or not z_dir.name.startswith("z"):
+                continue
+            for f in z_dir.iterdir():
+                if f.suffix.lower() in (".tif", ".tiff"):
+                    # All TIFs in z-tier subdirs are intermediates (aligned + enfuse temps)
+                    f.unlink(missing_ok=True)
+                    removed += 1
+                elif f.suffix.lower() == ".jpg":
+                    # Keep finals (last chain component is a grading id) and collages
+                    last_part = f.stem.rsplit("-", 1)[-1]
+                    if last_part not in grading_ids and last_part != "collage":
+                        f.unlink(missing_ok=True)
+                        removed += 1
+    logging.info("Cleanup removed %d intermediate files", removed)
 
 
 # ---------------------------------------------------------------------------
@@ -673,6 +817,7 @@ def run_full_workflow(
     default_lens: str = "",
     variants_arg: str = "some",
     fast: bool = False,
+    half: bool = False,
 ) -> None:
     """Run all steps in sequence, prompting between each unless --batch — see DESIGN.md § Workflow."""
 
@@ -703,13 +848,30 @@ def run_full_workflow(
     if _prompt("Step 5: Variant discovery"):
         cmd_stacks_process([], source, variants_arg=variants_arg, fast=fast, quality=quality, redo=redo)
 
+    selection_method = "folder"
     if not batch:
-        logging.info("Edit ppsp_generate.csv — mark variants with 'x' in the Generate column.")
+        variants_dir = source / "variants"
+        logging.info("")
+        logging.info("Step 6 — Variant selection. Choose a method:")
+        logging.info("  1. Folder-based (default): delete unwanted files from %s/", variants_dir)
+        logging.info("     then run --generate variants/ (hard-linked to stack z-tier subfolders)")
+        logging.info("  2. CSV-based: edit ppsp_generate.csv, mark keepers with 'x' in Generate column")
+        ans = input("Method [1/2, default=1]: ").strip()
+        selection_method = "csv" if ans == "2" else "folder"
         input("Press Enter when selection is done...")
 
     if _prompt("Step 7: Generate selected variants"):
-        gen_csv = source / _GENERATE_CSV
-        if gen_csv.exists():
-            cmd_generate([str(gen_csv)], source, quality=95, redo=redo)
+        if selection_method == "csv":
+            gen_csv = source / _GENERATE_CSV
+            if gen_csv.exists():
+                cmd_generate([str(gen_csv)], source, quality=95, redo=redo, half=half)
+            else:
+                logging.warning("ppsp_generate.csv not found; skipping generate step")
+        else:
+            variants_dir = source / "variants"
+            if variants_dir.exists():
+                cmd_generate([str(variants_dir)], source, quality=95, redo=redo, half=half)
+            else:
+                logging.warning("variants/ folder not found; skipping generate step")
 
     logging.info("=== Full workflow complete ===")

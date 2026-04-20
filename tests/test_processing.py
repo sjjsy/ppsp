@@ -1,14 +1,15 @@
-"""Unit tests for processing.py companion deduplication — see DESIGN.md § Testing strategy."""
+"""Unit tests for processing.py — companion deduplication and chain-spec dispatch."""
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from ppsp.models import Photo
-from ppsp.processing import _deduplicate_companions
+from ppsp.models import ChainSpec, Photo
+from ppsp.processing import _deduplicate_companions, _run_chain_specs
 
 _BASE_TS = datetime(2026, 4, 16, 10, 0, 0)
 
@@ -91,3 +92,112 @@ class TestDeduplicateCompanions:
         result = _deduplicate_companions([jpg])
         assert len(result) == 1
         assert result[0].ext == ".jpg"
+
+
+# ---------------------------------------------------------------------------
+# _run_chain_specs
+# ---------------------------------------------------------------------------
+
+
+def _make_mid_photo() -> Photo:
+    return Photo(
+        path=Path("mid.arw"),
+        filename="mid.arw",
+        source_file="mid.arw",
+        timestamp=_BASE_TS,
+        model="",
+        lens="",
+        exposure_comp=0.0,
+        focal_length=0.0,
+        fnumber=0.0,
+        white_balance="",
+        ext=".arw",
+    )
+
+
+class TestRunChainSpecs:
+    """Test _run_chain_specs with mocked tool calls."""
+
+    def _make_spec(self, enfuse_id: str, tmo_id: str | None, grading_id: str) -> ChainSpec:
+        return ChainSpec(z_tier="", enfuse_id=enfuse_id, tmo_id=tmo_id, grading_id=grading_id)
+
+    def _call(self, tmp_path, specs, **kwargs):
+        """Helper: call _run_chain_specs with output_dir = tmp_path/z25."""
+        output_dir = tmp_path / "z25"
+        output_dir.mkdir()
+        generated: list = []
+        _run_chain_specs(
+            aligned=[tmp_path / "aligned_0.tif", tmp_path / "aligned_1.tif"],
+            output_dir=output_dir,
+            stack_name="20260416-cam-0001-stack",
+            z_tier="z25",
+            chain_specs=specs,
+            quality=80,
+            mid_photo=_make_mid_photo(),
+            redo=False,
+            generated=generated,
+            **kwargs,
+        )
+        return generated
+
+    @patch("ppsp.processing.apply_grading", return_value=True)
+    @patch("ppsp.processing.run_tmo", return_value=True)
+    @patch("ppsp.processing.run_enfuse", return_value=True)
+    @patch("ppsp.processing._copy_exif")
+    def test_three_chain_specs_produce_three_outputs(
+        self, mock_exif, mock_enfuse, mock_tmo, mock_grading, tmp_path
+    ):
+        specs = [
+            self._make_spec("sel4", "fatt", "dvi1"),
+            self._make_spec("sel4", "fatt", "neut"),
+            self._make_spec("sel4", "ma06", "dvi1"),
+        ]
+        generated = self._call(tmp_path, specs)
+        assert len(generated) == 3
+        assert any("sel4-fatt-dvi1" in g for g in generated)
+        assert any("sel4-fatt-neut" in g for g in generated)
+        assert any("sel4-ma06-dvi1" in g for g in generated)
+
+    @patch("ppsp.processing.apply_grading", return_value=True)
+    @patch("ppsp.processing.run_tmo", return_value=True)
+    @patch("ppsp.processing.run_enfuse", return_value=True)
+    @patch("ppsp.processing._copy_exif")
+    def test_shared_enfuse_step_called_once_per_unique_id(
+        self, mock_exif, mock_enfuse, mock_tmo, mock_grading, tmp_path
+    ):
+        """Two specs sharing the same enfuse_id target the same temp TIFF path."""
+        specs = [
+            self._make_spec("sel4", "fatt", "dvi1"),
+            self._make_spec("sel4", "fatt", "neut"),
+        ]
+        self._call(tmp_path, specs)
+        enfuse_calls = mock_enfuse.call_args_list
+        assert len(enfuse_calls) == 2
+        tif_paths = [c.args[1] for c in enfuse_calls]
+        assert tif_paths[0] == tif_paths[1], "Both specs must reuse the same enfuse temp TIFF"
+
+    @patch("ppsp.processing.apply_grading", return_value=True)
+    @patch("ppsp.processing.run_enfuse", return_value=True)
+    @patch("ppsp.processing._copy_exif")
+    def test_no_tmo_spec_does_not_call_run_tmo(
+        self, mock_exif, mock_enfuse, mock_grading, tmp_path
+    ):
+        specs = [self._make_spec("natu", None, "neut")]
+        with patch("ppsp.processing.run_tmo") as mock_tmo:
+            generated = self._call(tmp_path, specs)
+            mock_tmo.assert_not_called()
+        assert len(generated) == 1
+        assert "natu-neut" in generated[0]
+
+    @patch("ppsp.processing.apply_grading", return_value=True)
+    @patch("ppsp.processing.run_tmo", return_value=True)
+    @patch("ppsp.processing.run_enfuse", return_value=False)  # enfuse fails
+    @patch("ppsp.processing._copy_exif")
+    def test_enfuse_failure_skips_spec(
+        self, mock_exif, mock_enfuse, mock_tmo, mock_grading, tmp_path
+    ):
+        specs = [self._make_spec("sel4", "fatt", "dvi1")]
+        generated = self._call(tmp_path, specs)
+        assert generated == []
+        mock_tmo.assert_not_called()
+        mock_grading.assert_not_called()

@@ -8,7 +8,7 @@ from pathlib import Path
 from collections import defaultdict
 from typing import Dict, List, Optional
 
-from .models import Photo, StackType
+from .models import ChainSpec, Photo, StackType
 from .util import run_command
 from .variants import ENFUSE_FOCUS, ENFUSE_VARIANTS, GRADING_PRESETS, TMO_VARIANTS
 
@@ -31,6 +31,14 @@ def _deduplicate_companions(photos: List[Photo]) -> List[Photo]:
     return result
 
 
+def _z25_sibling_of_z13(z13_tif: Path) -> Optional[Path]:
+    """Return the z25 counterpart path for a z13 TIFF, or None if the name lacks '-z13'."""
+    name = z13_tif.name
+    if "-z13" in name:
+        return z13_tif.with_name(name.replace("-z13", "-z25", 1))
+    return None
+
+
 def convert_raw_to_tiff(
     arw: Path,
     out_tif: Path,
@@ -38,7 +46,11 @@ def convert_raw_to_tiff(
     raw_converter: str,
     redo: bool = False,
 ) -> bool:
-    """Convert an ARW file to a 16-bit TIFF at the requested z-tier — see README.md § Resolution tiers."""
+    """Convert an ARW file to a 16-bit TIFF at the requested z-tier — see README.md § Resolution tiers.
+
+    When z_tier is 'z13', the dcraw -h output (z25 quality) is also preserved as a
+    sibling '_z25.tif' so that a later --half generate can reuse it without re-running dcraw.
+    """
     if out_tif.exists() and not redo:
         return True
 
@@ -50,24 +62,37 @@ def convert_raw_to_tiff(
             cmd.append("-h")
         cmd.append(str(arw))
         run_command(cmd, f"dcraw {z_tier} for {arw.name}")
-        # dcraw writes <stem>.tiff next to the input
         dcraw_out = arw.with_suffix(".tiff")
         if not dcraw_out.exists():
             logging.error("dcraw did not produce %s", dcraw_out)
             return False
-        dcraw_out.rename(out_tif)
+
+        if z_tier == "z13":
+            # dcraw -h output is z25 quality; save it so future --half generates can reuse it.
+            z25_tif = _z25_sibling_of_z13(out_tif)
+            if z25_tif is not None and not z25_tif.exists():
+                dcraw_out.rename(z25_tif)
+                shutil.copy2(z25_tif, out_tif)
+            else:
+                dcraw_out.rename(out_tif)
+            run_command(["mogrify", "-resize", "50%", str(out_tif)], "mogrify 50% for z13")
+        else:
+            dcraw_out.rename(out_tif)
     else:
         # darktable-cli fallback
         run_command(
             ["darktable-cli", str(arw), str(out_tif)],
             f"darktable-cli {z_tier} for {arw.name}",
         )
+        if z_tier == "z13" and out_tif.exists():
+            # Save a z25 copy before downscaling (darktable doesn't have a native half-size flag)
+            z25_tif = _z25_sibling_of_z13(out_tif)
+            if z25_tif is not None and not z25_tif.exists():
+                shutil.copy2(out_tif, z25_tif)
+            run_command(["mogrify", "-resize", "50%", str(out_tif)], "mogrify 50% for z13")
 
     if not out_tif.exists():
         return False
-
-    if z_tier == "z13":
-        run_command(["mogrify", "-resize", "50%", str(out_tif)], "mogrify 50% for z13")
 
     return out_tif.exists()
 
@@ -79,6 +104,9 @@ def align_stack(
     redo: bool = False,
 ) -> List[Path]:
     """Run align_image_stack and return sorted aligned_*.tif list — see DESIGN.md § align_image_stack."""
+    if len(tiff_files) < 2:
+        return list(tiff_files)
+
     prefix_path = Path(prefix)
     existing = sorted(prefix_path.parent.glob(f"{prefix_path.name}*.tif"))
     if existing and not redo:
@@ -190,99 +218,99 @@ def create_jpg_from_arw(
 
 
 def create_collage(
-    stack_dir: Path,
+    output_dir: Path,
     stack_name: str,
     all_variants: List[str],
     source_photos: List[Photo],
     redo: bool = False,
 ) -> None:
-    """Assemble a labeled collage from originals + enfuse + TMO variants — see README.md § Collage."""
-    collage_path = stack_dir / f"{stack_name}-collage.jpg"
+    """Assemble a labeled collage in a grid approximating 16:9 — see README.md § Collage.
+
+    output_dir is the z-tier subfolder where variant JPGs live; the collage is written there too.
+    """
+    import math
+
+    collage_path = output_dir / f"{stack_name}-collage.jpg"
     if collage_path.exists() and not redo:
         return
 
-    tile_size = "640x640"
+    TILE_W = 640  # tiles are resized to this width; height follows source aspect ratio
 
     def labeled_tile(src: Path, label: str, dst: Path) -> Optional[Path]:
         if not src.exists():
             return None
         cmd = [
             "convert", str(src),
-            "-resize", f"{tile_size}>",
-            "-background", "black",
-            "-extent", tile_size,
+            "-resize", f"{TILE_W}x>",
             "-font", "Liberation-Sans",
             "-fill", "white",
-            "-undercolor", "#00000080",
-            "-pointsize", "18",
+            "-undercolor", "#000000aa",
+            "-pointsize", "32",
             "-gravity", "South",
-            "-annotate", "+0+5", label,
+            "-annotate", "+0+12", label,
             str(dst),
         ]
         run_command(cmd, f"tile {label}", check=False)
         return dst if dst.exists() else None
 
-    tile_dir = stack_dir / "_tiles"
+    tile_dir = output_dir / "_tiles"
     tile_dir.mkdir(exist_ok=True)
 
-    rows: List[List[Path]] = []
+    all_tiles: List[Path] = []
 
-    # Row 1: originals
-    orig_tiles: List[Path] = []
+    # Originals first; label shows frame-number + collision letter, e.g. "2126-a"
     for i, photo in enumerate(source_photos):
         tile = tile_dir / f"orig_{i:03d}.jpg"
-        result = labeled_tile(photo.path, photo.filename, tile)
+        parts = Path(photo.filename).stem.split("-")
+        label = "-".join(parts[2:4]) if len(parts) >= 4 else Path(photo.filename).stem
+        result = labeled_tile(photo.path, label, tile)
         if result:
-            orig_tiles.append(result)
-    if orig_tiles:
-        rows.append(orig_tiles)
+            all_tiles.append(result)
 
-    # Collect variant JPGs present in the stack dir
-    enfuse_tiles: List[Path] = []
-    tmo_tiles: List[Path] = []
-
+    # Variants; label shows the chain only, e.g. "z25-sel3-fatt-dvi2"
     for variant_name in sorted(all_variants):
-        vpath = stack_dir / variant_name
+        vpath = output_dir / variant_name
         if not vpath.exists():
             continue
-        stem = Path(variant_name).stem
-        parts = stem.split("-")
-        # z-tier at index 3, enfuse at 4, possible tmo at 5
-        chain_parts = parts[3:] if len(parts) > 3 else []
-        has_tmo = len(chain_parts) >= 3 and chain_parts[2] in TMO_VARIANTS
-
+        parts = Path(variant_name).stem.split("-")
+        label = "-".join(parts[3:]) if len(parts) > 3 else Path(variant_name).stem
         tile = tile_dir / f"var_{variant_name}"
-        result = labeled_tile(vpath, stem, tile)
-        if not result:
-            continue
-        if has_tmo:
-            tmo_tiles.append(result)
-        else:
-            enfuse_tiles.append(result)
+        result = labeled_tile(vpath, label, tile)
+        if result:
+            all_tiles.append(result)
 
-    if enfuse_tiles:
-        rows.append(enfuse_tiles)
-    if tmo_tiles:
-        rows.append(tmo_tiles)
-
-    if not rows:
-        logging.warning("No tiles found for collage in %s", stack_dir)
+    if not all_tiles:
+        logging.warning("No tiles found for collage in %s", output_dir)
         shutil.rmtree(tile_dir, ignore_errors=True)
         return
 
+    # Find n_cols that makes the grid aspect ratio closest to 16:9.
+    # Camera tiles are ~3:2, so assumed tile height = TILE_W * 2/3.
+    assumed_tile_h = TILE_W * 2.0 / 3.0
+    target_ratio = 1920.0 / 1080.0
+    n = len(all_tiles)
+    best_cols, best_diff = 1, float("inf")
+    for cols in range(1, n + 1):
+        rows = math.ceil(n / cols)
+        ratio = (cols * TILE_W) / (rows * assumed_tile_h)
+        diff = abs(ratio - target_ratio)
+        if diff < best_diff:
+            best_diff = diff
+            best_cols = cols
+    n_cols = best_cols
+    n_rows = math.ceil(n / n_cols)
+
     row_images: List[Path] = []
-    for idx, row_tiles in enumerate(rows):
-        row_img = tile_dir / f"row_{idx:02d}.jpg"
+    for r in range(n_rows):
+        row_tiles = all_tiles[r * n_cols: (r + 1) * n_cols]
+        row_img = tile_dir / f"row_{r:02d}.jpg"
         cmd = ["convert", "+append"] + [str(t) for t in row_tiles] + [str(row_img)]
-        run_command(cmd, f"collage row {idx}", check=False)
+        run_command(cmd, f"collage row {r}", check=False)
         if row_img.exists():
             row_images.append(row_img)
 
     if row_images:
-        cmd = ["convert", "-append"] + [str(r) for r in row_images] + [
-            "-resize", "3840x3840>",
-            str(collage_path),
-        ]
+        cmd = ["convert", "-append"] + [str(r) for r in row_images] + [str(collage_path)]
         run_command(cmd, "assemble collage", check=False)
 
     shutil.rmtree(tile_dir, ignore_errors=True)
@@ -297,11 +325,13 @@ def process_stack(
     z_tier: str,
     quality: int,
     source_photos: List[Photo],
+    grading_ids: Optional[List[str]] = None,
+    chain_specs: Optional[List[ChainSpec]] = None,
     redo: bool = False,
 ) -> List[str]:
     """Orchestrate the full per-stack variant discovery pipeline — see README.md § Step 5.
 
-    Returns list of generated variant filenames (relative to stack_dir).
+    Returns list of generated variant filenames (relative to the z-tier output subfolder).
     """
     if not source_photos:
         logging.warning("No source photos for stack %s", stack_name)
@@ -311,7 +341,7 @@ def process_stack(
 
     raw_converter = _get_raw_converter_lazy()
 
-    # 1. Convert ARW → TIFF
+    # 1. Convert ARW → TIFF (intermediates stay in stack_dir)
     tiff_files: List[Path] = []
     for photo in source_photos:
         arw = photo.path
@@ -321,7 +351,7 @@ def process_stack(
         if raw_converter is None:
             logging.error("No raw converter available")
             return []
-        out_tif = stack_dir / f"{arw.stem}.tif"
+        out_tif = stack_dir / f"{arw.stem}-{z_tier}.tif"
         ok = convert_raw_to_tiff(arw, out_tif, z_tier, raw_converter, redo=redo)
         if ok:
             tiff_files.append(out_tif)
@@ -329,38 +359,87 @@ def process_stack(
             logging.error("Failed to convert %s", arw.name)
             return []
 
-    if len(tiff_files) < 2:
-        logging.warning("Fewer than 2 TIFFs for stack %s, skipping alignment", stack_name)
-        return []
+    # Final variants + all combined outputs go into stack_dir/{z_tier}/
+    output_dir = stack_dir / z_tier
+    output_dir.mkdir(exist_ok=True)
 
-    # 2. Align
-    align_prefix = str(stack_dir / "aligned_")
-    is_hdr = stack_type == StackType.HDR
-    aligned = align_stack(tiff_files, align_prefix, is_hdr=is_hdr, redo=redo)
-    if not aligned:
-        logging.error("Alignment failed for %s", stack_name)
-        return []
+    # 2. Align — skipped for single-frame stacks; prefix in output_dir
+    if len(tiff_files) < 2:
+        logging.info("Single-frame stack %s — skipping alignment", stack_name)
+        aligned = tiff_files
+    else:
+        align_prefix = str(output_dir / f"{_base_name(stack_name)}-{z_tier}-aligned")
+        is_hdr = stack_type == StackType.HDR
+        aligned = align_stack(tiff_files, align_prefix, is_hdr=is_hdr, redo=redo)
+        if not aligned:
+            logging.error("Alignment failed for %s", stack_name)
+            return []
+
+    effective_gradings = grading_ids if grading_ids is not None else list(GRADING_PRESETS.keys())
 
     # 3-5. Enfuse × TMO × Grading
     generated: List[str] = []
-
-    # middle image for EXIF
     mid_photo = source_photos[len(source_photos) // 2]
 
-    if stack_type == StackType.FOCUS:
-        # Single focu enfuse variant
+    if chain_specs:
+        _run_chain_specs(
+            aligned, output_dir, stack_name, z_tier,
+            chain_specs, quality, mid_photo, redo, generated,
+        )
+    elif stack_type == StackType.FOCUS:
         _run_focus_variants(
-            aligned, stack_dir, stack_name, z_tier, quality, mid_photo, redo, generated
+            aligned, output_dir, stack_name, z_tier,
+            effective_gradings, quality, mid_photo, redo, generated,
         )
     else:
         _run_hdr_variants(
-            aligned, stack_dir, stack_name, z_tier, enfuse_ids, tmo_ids,
-            quality, mid_photo, redo, generated
+            aligned, output_dir, stack_name, z_tier,
+            enfuse_ids, tmo_ids, effective_gradings, quality, mid_photo, redo, generated,
         )
 
-    # Collage
-    create_collage(stack_dir, stack_name, generated, source_photos, redo=redo)
+    # Collage lives in output_dir alongside the variants
+    create_collage(output_dir, stack_name, generated, source_photos, redo=redo)
     return generated
+
+
+def _run_chain_specs(
+    aligned: List[Path],
+    output_dir: Path,
+    stack_name: str,
+    z_tier: str,
+    chain_specs: List[ChainSpec],
+    quality: int,
+    mid_photo: Photo,
+    redo: bool,
+    generated: List[str],
+) -> None:
+    """Run exactly the specified chains — no Cartesian product — see README.md § Variant levels."""
+    base = _base_name(stack_name)
+
+    for spec in chain_specs:
+        enfuse_tif = output_dir / f"{base}-{z_tier}-{spec.enfuse_id}.tif"
+        ok = run_enfuse(aligned, enfuse_tif, spec.enfuse_id, redo=redo)
+        if not ok:
+            logging.error("Enfuse failed for chain spec %s-%s-%s", spec.enfuse_id, spec.tmo_id or "", spec.grading_id)
+            continue
+
+        if spec.tmo_id:
+            tmo_jpg = output_dir / f"{base}-{z_tier}-{spec.enfuse_id}-{spec.tmo_id}.jpg"
+            ok = run_tmo(enfuse_tif, tmo_jpg, spec.tmo_id, quality, redo=redo)
+            if not ok:
+                logging.error("TMO failed for chain spec %s-%s", spec.enfuse_id, spec.tmo_id)
+                continue
+            grading_src = tmo_jpg
+            out_name = f"{base}-{z_tier}-{spec.enfuse_id}-{spec.tmo_id}-{spec.grading_id}.jpg"
+        else:
+            grading_src = enfuse_tif
+            out_name = f"{base}-{z_tier}-{spec.enfuse_id}-{spec.grading_id}.jpg"
+
+        out_path = output_dir / out_name
+        ok = apply_grading(grading_src, out_path, spec.grading_id, quality, redo=redo)
+        if ok:
+            _copy_exif(mid_photo.path, out_path)
+            generated.append(out_name)
 
 
 def _get_raw_converter_lazy() -> Optional[str]:
@@ -370,25 +449,24 @@ def _get_raw_converter_lazy() -> Optional[str]:
 
 def _run_focus_variants(
     aligned: List[Path],
-    stack_dir: Path,
+    output_dir: Path,
     stack_name: str,
     z_tier: str,
+    grading_ids: List[str],
     quality: int,
     mid_photo: Photo,
     redo: bool,
     generated: List[str],
 ) -> None:
     """Run the single focus-stack enfuse + grading chain — see README.md § Enfuse variants."""
-    from .variants import GRADING_PRESETS
-
-    enfuse_tif = stack_dir / f"temp_focu.tif"
+    enfuse_tif = output_dir / f"{_base_name(stack_name)}-{z_tier}-focu.tif"
     ok = run_enfuse(aligned, enfuse_tif, "focu", redo=redo)
     if not ok:
         return
 
-    for grading_id in GRADING_PRESETS:
+    for grading_id in grading_ids:
         out_name = f"{_base_name(stack_name)}-{z_tier}-focu-{grading_id}.jpg"
-        out_path = stack_dir / out_name
+        out_path = output_dir / out_name
         ok = apply_grading(enfuse_tif, out_path, grading_id, quality, redo=redo)
         if ok:
             _copy_exif(mid_photo.path, out_path)
@@ -397,31 +475,30 @@ def _run_focus_variants(
 
 def _run_hdr_variants(
     aligned: List[Path],
-    stack_dir: Path,
+    output_dir: Path,
     stack_name: str,
     z_tier: str,
     enfuse_ids: List[str],
     tmo_ids: List[str],
+    grading_ids: List[str],
     quality: int,
     mid_photo: Photo,
     redo: bool,
     generated: List[str],
 ) -> None:
     """Run all enfuse × TMO × grading combinations for an HDR stack — see README.md § Variant levels."""
-    from .variants import GRADING_PRESETS
-
     base = _base_name(stack_name)
 
     for enfuse_id in enfuse_ids:
-        enfuse_tif = stack_dir / f"temp_{enfuse_id}.tif"
+        enfuse_tif = output_dir / f"{base}-{z_tier}-{enfuse_id}.tif"
         ok = run_enfuse(aligned, enfuse_tif, enfuse_id, redo=redo)
         if not ok:
             continue
 
         # Enfuse-only grading (no TMO)
-        for grading_id in GRADING_PRESETS:
+        for grading_id in grading_ids:
             out_name = f"{base}-{z_tier}-{enfuse_id}-{grading_id}.jpg"
-            out_path = stack_dir / out_name
+            out_path = output_dir / out_name
             ok2 = apply_grading(enfuse_tif, out_path, grading_id, quality, redo=redo)
             if ok2:
                 _copy_exif(mid_photo.path, out_path)
@@ -429,14 +506,14 @@ def _run_hdr_variants(
 
         # TMO variants
         for tmo_id in tmo_ids:
-            tmo_jpg = stack_dir / f"temp_{enfuse_id}_{tmo_id}.jpg"
+            tmo_jpg = output_dir / f"{base}-{z_tier}-{enfuse_id}-{tmo_id}.jpg"
             ok3 = run_tmo(enfuse_tif, tmo_jpg, tmo_id, quality, redo=redo)
             if not ok3:
                 continue
 
-            for grading_id in GRADING_PRESETS:
+            for grading_id in grading_ids:
                 out_name = f"{base}-{z_tier}-{enfuse_id}-{tmo_id}-{grading_id}.jpg"
-                out_path = stack_dir / out_name
+                out_path = output_dir / out_name
                 ok4 = apply_grading(tmo_jpg, out_path, grading_id, quality, redo=redo)
                 if ok4:
                     _copy_exif(mid_photo.path, out_path)

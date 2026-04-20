@@ -76,6 +76,8 @@ def _build_parser():
 
     cmds.add_argument("--generate", "-g", nargs="+", metavar="TARGET",
                       help="Generate variants from chain filenames, CSV, or TXT")
+    cmds.add_argument("--half", action="store_true",
+                      help="Generate at z25 (half-linear resolution) instead of z100 (full)")
 
     cmds.add_argument("--arws-enhance", "-e", nargs="*", metavar="FILE",
                       help="Convert ARW files to enhanced JPGs")
@@ -121,7 +123,7 @@ def main(argv=None) -> None:
                            redo=args.redo)
 
     elif args.generate:
-        cmd_generate(list(args.generate), source, quality=95, redo=args.redo)
+        cmd_generate(list(args.generate), source, quality=95, redo=args.redo, half=args.half)
 
     elif args.arws_enhance is not None:
         files = [Path(f) for f in args.arws_enhance] if args.arws_enhance else []
@@ -143,6 +145,7 @@ def main(argv=None) -> None:
             default_lens=args.default_lens,
             variants_arg=args.variants,
             fast=args.fast,
+            half=args.half,
         )
 
 
