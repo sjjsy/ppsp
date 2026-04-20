@@ -135,9 +135,9 @@ The `chain` for original camera files is a single collision-avoidance letter (`a
 |---|---|
 | `20260416095559-m4azzz-2126-a.arw` | Original ARW |
 | `20260416095559-m4azzz-2126-a.jpg` | Camera JPG companion |
-| `20260416095559-m4azzz-2126-z25-sel3-fatt-dvi2.jpg` | Discovery variant at z25 |
-| `20260416095559-m4azzz-2126-z100-sel3-fatt-dvi2.jpg` | Full-quality generation |
-| `20260416095559-m4azzz-2126-z100-sel3-fatt-dvi2-web.jpg` | Web export |
+| `20260416095559-m4azzz-2126-z25-sel3-fatc-dvi2.jpg` | Discovery variant at z25 |
+| `20260416095559-m4azzz-2126-z100-sel3-fatc-dvi2.jpg` | Full-quality generation |
+| `20260416095559-m4azzz-2126-z100-sel3-fatc-dvi2-web.jpg` | Web export |
 | `20260416095559-m4azzz-2126-z25-focu-neut.jpg` | Focus stack, `focu` variant, `neut` grading |
 
 Stack folders use the first image's base name with a `-stack` suffix: `20260416095559-m4azzz-2126-stack/`.
@@ -227,8 +227,8 @@ For each surviving stack, convert RAW files at reduced resolution, align the fra
 ppsp --stacks-process                                                  # z25, 'some' variants
 ppsp -P 20260416095559-m4azzz-2126-stack                               # one specific stack
 ppsp --stacks-process --fast --variants many --quality 70              # z13, 25 combos
-ppsp --stacks-process --variants natu,sel3,fatt,ma06                   # custom ID selection
-ppsp --stacks-process --variants sel4-fatt-dvi1,sel4-fatt-neut,sel4-ma06-dvi1  # exact chains
+ppsp --stacks-process --variants natu,sel3,fatc,m06p                   # custom ID selection
+ppsp --stacks-process --variants sel4-fatc-dvi1,sel4-fatc-neut,sel4-m06p-dvi1  # exact chains
 ```
 
 #### Variant discovery options
@@ -251,17 +251,17 @@ ppsp --stacks-process --variants all     # all 9 enfuse × all 5 TMO × 6 gradin
 **Mode 2 — Comma-separated IDs** (no `-` in any token): selects which enfuse, TMO, and grading IDs to include, then runs the cross-product. If no grading IDs are given, all 6 presets are used; otherwise only the listed ones.
 
 ```bash
-ppsp --stacks-process --variants natu,sel3,fatt,ma06
-# → enfuse: [natu, sel3]  TMO: [fatt, ma06]  gradings: all 6 → 24 variants
+ppsp --stacks-process --variants natu,sel3,fatc,m06p
+# → enfuse: [natu, sel3]  TMO: [fatc, m06p]  gradings: all 6 → 24 variants
 
-ppsp --stacks-process --variants sel3,fatt,ma06,dvi1
-# → enfuse: [sel3]  TMO: [fatt, ma06]  gradings: [dvi1] → 2 variants
+ppsp --stacks-process --variants sel3,fatc,m06p,dvi1
+# → enfuse: [sel3]  TMO: [fatc, m06p]  gradings: [dvi1] → 2 variants
 ```
 
 **Mode 3 — Exact chain specs** (any token contains `-`): generates precisely those chains, one output file per spec. The format per spec is `{enfuse-id}-{grading-id}` or `{enfuse-id}-{tmo-id}-{grading-id}`.
 
 ```bash
-ppsp --stacks-process --variants sel4-fatt-dvi1,sel4-fatt-neut,sel4-ma06-dvi1
+ppsp --stacks-process --variants sel4-fatc-dvi1,sel4-fatc-neut,sel4-m06p-dvi1
 # → exactly 3 variants per stack, with exactly those processing chains
 ```
 
@@ -283,9 +283,9 @@ Each preset also includes a default set of grading presets. Variants = (enfuse �
 
 | Level | Enfuse IDs | TMO IDs | Grading IDs | Total variants |
 |---|---|---|---|---|
-| `some` *(default)* | `natu`, `sel3`, `sel4` | `ma06`, `fatt`, `ferw` | `neut`, `brig`, `dvi1` | 36 |
-| `many` | `natu`, `sel3`, `sel4`, `sel6`, `cont` | `ma06`, `ma08`, `fatt`, `ferr`, `ferw` | `neut`, `warm`, `brig`, `dvi1`, `dvi2` | 150 |
-| `all` | all nine | all five | all six | 540 |
+| `some` *(default)* | `natu`, `sel3`, `sel4` | `m08n`, `r02p`, `dras` | `neut`, `brig`, `dvi1` | 36 |
+| `many` | `natu`, `sel3`, `sel4`, `sel6`, `cont` | `m08n`, `m08c`, `m06p`, `r02p`, `dras`, `fatc` | `neut`, `warm`, `brig`, `dvi1`, `dvi2` | 225 |
+| `all` | all nine | all thirteen | all six | 1053 |
 
 #### Enfuse variants
 
@@ -307,15 +307,28 @@ For focus stacks, a single `focu` variant is used instead: `--contrast-weight=1 
 
 #### Tone-mapping operators
 
-Invoked via `luminance-hdr-cli --tmo <id>` on the 16-bit TIFF produced by enfuse:
+Invoked via `luminance-hdr-cli` on the 16-bit TIFF produced by enfuse. The TIFF is passed as a positional argument (not `-l`, which is for existing `.hdr`/`.exr` HDR files). Tuned variants use individual `--tmoXxx` flags specific to each operator. **Requires Luminance HDR v2.6.0.**
 
-| ID | Operator |
-|---|---|
-| `ma06` | Mantiuk '06 |
-| `ma08` | Mantiuk '08 |
-| `ferr` | Ferradans |
-| `fatt` | Fattal |
-| `ferw` | Ferwerda |
+For each operator, a `d`-suffix "defaults" variant is listed first (no extra flags — Luminance uses its built-in defaults), followed by tuned variants.
+
+> For single-frame stacks (no HDR brackets), enfuse is skipped and tone-mapping runs directly on the converted TIFF, producing a "pseudo-HDR" polish effect.
+
+| ID | Operator | Character | Tuning flags |
+|---|---|---|---|
+| `m08d` | Mantiuk '08 | Luminance defaults | — |
+| `m08n` | Mantiuk '08 | Natural / balanced — best all-rounder for interiors | `--tmoM08ColorSaturation 1.2 --tmoM08ConstrastEnh 2.0` |
+| `m08c` | Mantiuk '08 | Contrast / punch; bright windows | `--tmoM08ColorSaturation 1.2 --tmoM08ConstrastEnh 3.0` |
+| `m06d` | Mantiuk '06 | Luminance defaults | — |
+| `m06p` | Mantiuk '06 | Punch / pop | `--tmoM06Contrast 0.7 --tmoM06Saturation 1.4 --tmoM06Detail 1.0` |
+| `drad` | Drago | Luminance defaults | — |
+| `dras` | Drago | Soft, film-like highlight roll-off; strong window light | `--tmoDrgBias 0.85` |
+| `r02d` | Reinhard '02 | Luminance defaults | — |
+| `r02p` | Reinhard '02 | Photographic / clean; lowest artefact risk | `--tmoR02Key 0.18 --tmoR02Phi 1.0` |
+| `fatd` | Fattal | Luminance defaults | — |
+| `fatn` | Fattal | Neutral / low saturation | `--tmoFatColor 0.8 --gamma 1.6 --postgamma 1.2` |
+| `fatc` | Fattal | Creative / dramatic; exteriors and high-contrast shots | `--tmoFatAlpha 0.8 --tmoFatBeta 0.9` |
+| `ferr` | Ferradans | Luminance defaults | — |
+| `ferw` | Ferwerda | Luminance defaults | — |
 
 #### Color-grading presets
 
@@ -343,20 +356,20 @@ shoot/
 │       ├── 20260416095559-m4azzz-2126-z25-aligned0000.tif   ← aligned (removed by --cleanup)
 │       ├── 20260416095559-m4azzz-2126-z25-aligned0001.tif
 │       ├── 20260416095559-m4azzz-2126-z25-sel4.tif          ← enfuse temp (removed by --cleanup)
-│       ├── 20260416095559-m4azzz-2126-z25-sel4-fatt.jpg     ← TMO temp (removed by --cleanup)
-│       ├── 20260416095559-m4azzz-2126-z25-sel3-fatt-dvi1.jpg
-│       ├── 20260416095559-m4azzz-2126-z25-sel4-ma06-neut.jpg
+│       ├── 20260416095559-m4azzz-2126-z25-sel4-fatc.jpg     ← TMO temp (removed by --cleanup)
+│       ├── 20260416095559-m4azzz-2126-z25-sel3-fatc-dvi1.jpg
+│       ├── 20260416095559-m4azzz-2126-z25-sel4-m06p-neut.jpg
 │       ├── ...
 │       └── 20260416095559-m4azzz-2126-stack-collage.jpg
 └── variants/                                      ← hard links to variants + collages
-    ├── 20260416095559-m4azzz-2126-z25-sel3-fatt-dvi1.jpg
+    ├── 20260416095559-m4azzz-2126-z25-sel3-fatc-dvi1.jpg
     ├── 20260416095559-m4azzz-2126-stack-collage.jpg
     └── ...
 ```
 
 #### Collage
 
-After all variants for a stack are produced, a single `<stack-name>-collage.jpg` is written into the z-tier subfolder alongside the variants. All tiles (originals first, then variants) are arranged in a grid whose dimensions are chosen to approximate a 16:9 aspect ratio. Each tile is 640 px wide (preserving the source aspect ratio) and labeled with its chain identifier (`z25-sel3-fatt-dvi2`) in 32 pt white text overlaid at the bottom center of the tile.
+After all variants for a stack are produced, a single `<stack-name>-collage.jpg` is written into the z-tier subfolder alongside the variants. All tiles (originals first, then variants) are arranged in a grid whose dimensions are chosen to approximate a 16:9 aspect ratio. Each tile is 640 px wide (preserving the source aspect ratio) and labeled with its chain identifier (`z25-sel3-fatc-dvi2`) in 32 pt white text overlaid at the bottom center of the tile.
 
 ### Step 6 — Variant selection
 
@@ -385,8 +398,8 @@ ppsp --generate variants/
 
 ```
 Filename	Generate
-20260416095559-m4azzz-2126-z100-sel3-fatt-dvi2.jpg	-
-20260416095559-m4azzz-2126-z100-sel4-ma06-dvi1.jpg	x
+20260416095559-m4azzz-2126-z100-sel3-fatc-dvi2.jpg	-
+20260416095559-m4azzz-2126-z100-sel4-m06p-dvi1.jpg	x
 ```
 
 ```bash
@@ -402,8 +415,8 @@ ppsp --generate variants/                                              # Method 
 ppsp --generate variants/ --half                                        # Method A: folder → z25
 ppsp --generate ppsp_generate.csv                                      # Method B: CSV
 ppsp -g my_selection.txt                                               # one filename per line
-ppsp --generate 20260416095559-m4azzz-2126-z100-sel3-fatt-dvi2.jpg    # direct filename
-ppsp --generate z25-sel4-ma06-dvi1                                     # chain spec, all stacks
+ppsp --generate 20260416095559-m4azzz-2126-z100-sel3-fatc-dvi2.jpg    # direct filename
+ppsp --generate z25-sel4-m06p-dvi1                                     # chain spec, all stacks
 ppsp --generate variants/ --redo                                        # force regeneration
 ```
 
@@ -414,9 +427,9 @@ ppsp --generate variants/ --redo                                        # force 
 Pass one or more z-tier chain specs directly as arguments. Each spec is expanded to all stacks under `--source` — no need to list individual files:
 
 ```bash
-ppsp --generate z25-sel4-ma06-dvi1                      # one chain, all stacks, at z25
-ppsp --generate z100-sel4-ma06-dvi1                     # same chain at full resolution
-ppsp --generate z25-sel4-ma06-dvi1 z100-natu-neut       # two chains across all stacks
+ppsp --generate z25-sel4-m06p-dvi1                      # one chain, all stacks, at z25
+ppsp --generate z100-sel4-m06p-dvi1                     # same chain at full resolution
+ppsp --generate z25-sel4-m06p-dvi1 z100-natu-neut       # two chains across all stacks
 ppsp --generate z25-focu-neut                           # focus stack chain, all stacks
 ```
 
@@ -437,7 +450,7 @@ When reading from a CSV or TXT file, filenames are used exactly as written. The 
 
 ```
 Filename	Generate
-20260416095559-m4azzz-2126-z25-sel4-ma06-dvi1.jpg	x
+20260416095559-m4azzz-2126-z25-sel4-m06p-dvi1.jpg	x
 20260416095559-m4azzz-2127-z100-natu-neut.jpg	x
 ```
 
@@ -461,7 +474,7 @@ shoot/
 ├── cull/                                 # One labeled preview per stack
 │   └── 20260416095559-m4azzz-2126-stack_count5.jpg
 ├── variants/                             # Hard links to all discovery variants + collages
-│   ├── 20260416095559-m4azzz-2126-z25-sel3-fatt-dvi1.jpg
+│   ├── 20260416095559-m4azzz-2126-z25-sel3-fatc-dvi1.jpg
 │   └── 20260416095559-m4azzz-2126-stack-collage.jpg
 ├── 20260416095559-m4azzz-2126-stack/     # One folder per stack
 │   ├── 20260416095559-m4azzz-2126-a.arw  # Per-frame source files stay in root
@@ -469,13 +482,13 @@ shoot/
 │   └── z25/                             # All combined outputs: intermediates + variants + collage
 │       ├── *-z25-aligned0000.tif         # Aligned TIFs (removed by --cleanup)
 │       ├── *-z25-sel4.tif               # Enfuse temp TIF (removed by --cleanup)
-│       ├── *-z25-sel4-fatt.jpg          # TMO temp JPG (removed by --cleanup)
-│       ├── 20260416095559-m4azzz-2126-z25-sel3-fatt-dvi1.jpg
+│       ├── *-z25-sel4-fatc.jpg          # TMO temp JPG (removed by --cleanup)
+│       ├── 20260416095559-m4azzz-2126-z25-sel3-fatc-dvi1.jpg
 │       └── 20260416095559-m4azzz-2126-stack-collage.jpg
 ├── out_full/                             # Full-quality finals (from --generate)
-│   └── 20260416095559-m4azzz-2126-z100-sel3-fatt-dvi2.jpg
+│   └── 20260416095559-m4azzz-2126-z100-sel3-fatc-dvi2.jpg
 └── out_web/                              # Web-ready finals
-    └── 20260416095559-m4azzz-2126-z100-sel3-fatt-dvi2-web.jpg
+    └── 20260416095559-m4azzz-2126-z100-sel3-fatc-dvi2-web.jpg
 ```
 
 ## Development

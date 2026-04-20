@@ -127,9 +127,17 @@ def run_enfuse(
     enfuse_id: str,
     redo: bool = False,
 ) -> bool:
-    """Run enfuse with the given variant params — see README.md § Enfuse variants."""
+    """Run enfuse with the given variant params — see README.md § Enfuse variants.
+
+    For a single input frame, skips the enfuse binary and copies the frame directly
+    so that downstream TMO and grading steps can still run.
+    """
     if output_tif.exists() and not redo:
         return True
+
+    if len(aligned) == 1:
+        shutil.copy2(aligned[0], output_tif)
+        return output_tif.exists()
 
     params = ENFUSE_FOCUS if enfuse_id == "focu" else ENFUSE_VARIANTS.get(enfuse_id, [])
     cmd = ["enfuse", "-o", str(output_tif), "--compression=none"] + params
@@ -150,8 +158,10 @@ def run_tmo(
         return True
 
     tmo_flags = TMO_VARIANTS.get(tmo_id, [])
+    # TIFF is a positional arg (-l is for existing .hdr/.exr HDR files); -e 0 supplies the
+    # missing EV value that luminance requires even for single-frame pseudo-HDR input.
     cmd = (
-        ["luminance-hdr-cli", "-l", str(enfuse_tif), "-o", str(temp_jpg)]
+        ["luminance-hdr-cli", str(enfuse_tif), "-e", "0", "-o", str(temp_jpg)]
         + tmo_flags
         + ["-q", str(quality)]
     )

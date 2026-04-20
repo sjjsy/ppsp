@@ -68,11 +68,55 @@ ENFUSE_VARIANTS: Dict[str, List[str]] = {
     ],
 }
 
+# Luminance HDR v2.6.0 tone-mapping operator presets.
+# Input TIFF is passed as a positional arg with -e 0; tuned variants use --tmoXxx flags.
+# Within each operator group the defaults variant (d-suffix, no extra flags) is listed first,
+# followed by tuned variants whose suffix hints at the emphasis vs. the default.
 TMO_VARIANTS: Dict[str, List[str]] = {
-    "ma06": ["--tmo", "mantiuk06"],
-    "ma08": ["--tmo", "mantiuk08"],
+    # --- Mantiuk '08 ---
+    # Notes:
+    #  --tmoM08Contrast – Controls the overall dynamic-range compression. Lower values (0.2–0.4) give a very natural, film-like look. Higher values (0.5–0.7) add more punch. Typical real-estate range: 0.25 – 0.4 (this is why I recommend Mantiuk ’08 as the daily driver).
+    #  --tmoM08Saturation – Post-mapping colour vibrancy. Typical real-estate range: 1.05 – 1.15.
+    #  --tmoM08Detail – Local detail / micro-contrast. Typical real-estate range: 0.9 – 1.1.
+    "m08d": ["--tmo", "mantiuk08"],                                              # Luminance defaults
+    "m08n": ["--tmo", "mantiuk08",                                               # Natural / balanced
+             "--tmoM08ColorSaturation", "1.2",
+             "--tmoM08ConstrastEnh", "2.0",
+             "--gamma", "1.2",
+             "--saturation", "1.2",
+             "--postgamma", "1.1"],
+    "m08c": ["--tmo", "mantiuk08",                                               # Contrast / punch
+             "--tmoM08ColorSaturation", "1.3",
+             "--tmoM08ConstrastEnh", "3.0"],
+    # --- Mantiuk '06 ---
+    "m06d": ["--tmo", "mantiuk06"],                                              # Luminance defaults
+    "m06p": ["--tmo", "mantiuk06",                                               # Punch / pop
+             "--tmoM06Contrast", "0.7",
+             "--tmoM06Saturation", "1.4",
+             "--tmoM06Detail", "1.0",
+             "--gamma", "1.2",
+             "--saturation", "1.2",
+             "--postgamma", "1.1"],
+    # --- Drago ---
+    "drad": ["--tmo", "drago"],                                                  # Luminance defaults
+    "dras": ["--tmo", "drago",                                                   # Soft highlight roll-off
+             "--tmoDrgBias", "0.85"],
+    # --- Reinhard '02 ---
+    "r02d": ["--tmo", "reinhard02"],                                             # Luminance defaults
+    "r02p": ["--tmo", "reinhard02",                                              # Photographic / clean
+             "--tmoR02Key", "0.18",
+             "--tmoR02Phi", "1.0"],
+    # --- Fattal ---
+    "fatd": ["--tmo", "fattal"],                                                 # Luminance defaults
+    "fatn": ["--tmo", "fattal",                                                  # More neutral version
+             "--tmoFatColor", "0.8",
+             "--gamma", "1.6",
+             "--postgamma", "1.2"],
+    "fatc": ["--tmo", "fattal",                                                  # Creative / dramatic
+             "--tmoFatAlpha", "0.8",
+             "--tmoFatBeta", "0.9"],
+    # --- Ferradans and Ferwerda (no tuned variants) ---
     "ferr": ["--tmo", "ferradans"],
-    "fatt": ["--tmo", "fattal"],
     "ferw": ["--tmo", "ferwerda"],
 }
 
@@ -121,14 +165,15 @@ GRADING_PRESETS: Dict[str, List[str]] = {
 
 # Preset level definitions: (enfuse_ids, tmo_ids, grading_ids) — see README.md § Variant levels
 VARIANT_LEVELS: Dict[str, Tuple[List[str], List[str], List[str]]] = {
+    # Primary recommendations for real-estate / interior photography
     "some": (
         ["natu", "sel3", "sel4"],
-        ["ma06", "fatt", "ferw"],
-        ["neut", "brig", "dvi1"],          # 3 most practically useful for RE/arch
+        ["m08n", "r02p", "dras"],
+        ["neut", "brig", "dvi1"],
     ),
     "many": (
         ["natu", "sel3", "sel4", "sel6", "cont"],
-        ["ma06", "ma08", "fatt", "ferr", "ferw"],
+        ["m08n", "m08c", "m06p", "r02p", "dras", "fatc"],
         ["neut", "warm", "brig", "dvi1", "dvi2"],
     ),
     "all": (
