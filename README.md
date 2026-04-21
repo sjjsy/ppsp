@@ -2,6 +2,10 @@
 
 A CLI tool for real-estate and architectural photographers who shoot 500+ bracketed images per session and publish 10–20 polished finals. `ppsp` automates the tedious mechanical work — renaming, organizing, stacking, fusing, grading — while keeping you in control of every creative decision.
 
+This README explains how ppsp can be used, but complementary documents are available:
+* **[GUIDE.md](GUIDE.md)** provides a deep-dive into the underlying theory and tools behind ppsp and its built-in presets.
+* **[DESIGN.md](DESIGN.md)** provides a technical overview of the tool from a developer's prespective.
+
 ## Motivation
 
 A typical architectural session produces hundreds of HDR brackets and focus stacks.
@@ -11,7 +15,7 @@ The optimum tone-mapping and color-grading parameters are impossible to know upf
 Key design goals:
 
 - **Minimize human time.** Make every choice among clearly prepared options, not from scratch.
-- **Minimize processing time.** Variant discovery runs at reduced resolution (z25 or z13); full-quality output is generated only for selected results.
+- **Minimize processing time.** Variant discovery runs at reduced resolution (z25 or z6); full-quality output is generated only for selected results.
 - **Stateful and resumable.** Every step automatically skips outputs that already exist. Pass `--redo` to force a step to regenerate even existing outputs.
 - **Verbose and transparent.** Elapsed-time logging at every step so you can estimate remaining time. After the project, the logs can be archived along with the final outputs and possibly the original raw data.
 
@@ -49,23 +53,23 @@ This installs the `ppsp` command globally.
 
 ```bash
 # Interactive full workflow
-ppsp --source /path/to/shoot/
+ppsp --dir /path/to/shoot/
 
 # Fully automated (no prompts)
-ppsp --source /path/to/shoot/ --batch
+ppsp --dir /path/to/shoot/ --batch
 ```
 
 ## Processing flow and command reference
 
-Running `ppsp` without a command flag walks you through all steps interactively. Every step can also be invoked individually. All file-accepting commands default to all matching files under `--source` (or the current directory) when no files are given explicitly.
+Running `ppsp` without a command flag walks you through all steps interactively. Every step can also be invoked individually. All file-accepting commands default to all matching files under `--dir` (or the current directory) when no files are given explicitly.
 
 | Step | Command | Short | Description |
 |---|---|---|---|
 | 1 | `--rename [FILES...]` | `-r` | Normalize filenames + write `ppsp_photos.csv` |
 | 2 | `--stacks-organize [FILES...]` | `-o` | Group files into per-stack folders |
 | 3 | `--stacks-cull` | `-c` | Generate labeled culling previews in `cull/` |
-| 4 | `--stacks-prune` | `-p` | Remove stack folders with no surviving preview |
-| 5 | `--stacks-process [STACKS...]` | `-P` | Variant discovery at reduced resolution + collage |
+| 4 | `--stacks-prune` | `-P` | Remove stack folders with no surviving preview |
+| 5 | `--stacks-process` | `-p` | Variant discovery at reduced resolution + collage (use --stacks to limit scope) |
 | 6 | *(manual)* | | Edit `ppsp_generate.csv` — mark variants with `x` |
 | 7 | `--generate FOLDER/FILES/CSV/TXT` | `-g` | Generate variants from chain specifications |
 | — | `--arws-enhance [FILES...]` | `-e` | Convert ARW files to enhanced JPGs |
@@ -81,7 +85,8 @@ Running `ppsp` without a command flag walks you through all steps interactively.
 
 | Flag | Short | Default | Description |
 |---|---|---|---|
-| `--source DIR` | `-s` | `.` | Directory containing shoot images |
+| `--dir DIR` | `-d` | `.` | Directory containing shoot images |
+| `--stacks SPEC...` | `-s` | — | Limit scope to specific stacks: full stack name, 4-digit frame number, or `NNNN-NNNN` range |
 | `--quality INT` | `-q` | `80` | JPEG quality for all internal conversions |
 | `--batch` | `-b` | off | Skip all interactive prompts |
 | `--verbose` | `-v` | off | Debug-level logging |
@@ -202,14 +207,15 @@ Produce one labeled JPG preview per stack in `cull/`, named `<stack-name>_count<
 ppsp --stacks-cull
 ```
 
-The representative image is chosen in this priority order: a JPG at EV 0 → any JPG → any file at EV 0 (ARW-derived) → middle image of the stack. It is resized to 1920×1080 and annotated in the top-right corner with its filename (Liberation-Sans 26 pt, white text on 50 % black undercolor).
+The representative image is chosen in this priority order: a JPG at EV 0 → any JPG → any file at EV 0 (ARW-derived) → middle image of the stack.
+The representatives are resized to 1920×1080 and annotated in the bottom-center: the image number (NNNN) in large bold, and the frame count (`×N`) in smaller text below it.
 
 Review with any image viewer before proceeding:
 ```bash
 eog cull/ &
 ```
 
-### Step 4 — Manual culling and prune (`--stacks-prune` / `-p`)
+### Step 4 — Manual culling and prune (`--stacks-prune` / `-P`)
 
 Delete the preview files from `cull/` for any stacks you do not want to process. Stacks with no surviving preview are ignored by all subsequent steps. Then run:
 
@@ -219,16 +225,16 @@ ppsp --stacks-prune
 
 This removes the stack directories that no longer have a corresponding preview in `cull/`.
 
-### Step 5 — Variant discovery (`--stacks-process` / `-P`)
+### Step 5 — Variant discovery (`--stacks-process` / `-p`)
 
-For each surviving stack, convert RAW files at reduced resolution, align the frames with `align_image_stack`, generate the requested variants, and assemble a labeled collage.
+For each surviving stack, convert RAW files at reduced resolution, align the frames with `align_image_stack`, generate the requested variants, annotate them with filenames (as with the culling previews) and assemble a collage.
 
 ```bash
 ppsp --stacks-process                                                  # z25, 'some' variants
-ppsp -P 20260416095559-m4azzz-2126-stack                               # one specific stack
-ppsp --stacks-process --fast --variants many --quality 70              # z13, 25 combos
-ppsp --stacks-process --variants natu,sel3,fatc,m06p                   # custom ID selection
-ppsp --stacks-process --variants sel4-fatc-dvi1,sel4-fatc-neut,sel4-m06p-dvi1  # exact chains
+ppsp -p --stacks 2126                                                   # one specific stack
+ppsp --stacks 2126-2200 -p --fast --variants many --quality 70         # z6, stacks 2126-2200
+ppsp -p --variants natu,sel3,fatc,m06p                                  # custom ID selection
+ppsp -p --variants sel4-fatc-dvi1,sel4-fatc-neut,sel4-m06p-dvi1        # exact chains
 ```
 
 #### Variant discovery options
@@ -236,32 +242,33 @@ ppsp --stacks-process --variants sel4-fatc-dvi1,sel4-fatc-neut,sel4-m06p-dvi1  #
 | Flag | Short | Default | Description |
 |---|---|---|---|
 | `--variants SPEC` | `-V` | `some` | What to generate — see the three modes below |
-| `--fast` | `-f` | off | Use z13 resolution instead of z25 |
+| `--fast` | `-f` | off | Use z6 resolution instead of z25 |
 
 #### Three ways to specify variants
 
-**Mode 1 — Preset level** (`some` / `many` / `all`): runs the cross-product of all enfuse IDs × all TMO IDs × all 6 grading presets for the chosen level.
+**Mode 1 — Preset level** (`some` / `many` / `lots` / `all`): runs the cross-product of all enfuse IDs × all TMO IDs × all grading presets for the chosen level.
 
 ```bash
-ppsp --stacks-process --variants some    # default: 3 enfuse × 3 TMO × 6 gradings = 54 combos
-ppsp --stacks-process --variants many    # 5 enfuse × 5 TMO × 6 gradings = 150 combos
-ppsp --stacks-process --variants all     # all 9 enfuse × all 5 TMO × 6 gradings = 270 combos
+ppsp -p --variants some    # 1 enfuse × 2 TMO × 2 gradings (+ enfuse-only)
+ppsp -p --variants many    # 3 enfuse × 2 TMO × 2 gradings (+ enfuse-only)
+ppsp -p --variants lots    # 5 enfuse × 6 TMO × 5 gradings (+ enfuse-only)
+ppsp -p --variants all     # all enfuse × all TMO × all gradings
 ```
 
 **Mode 2 — Comma-separated IDs** (no `-` in any token): selects which enfuse, TMO, and grading IDs to include, then runs the cross-product. If no grading IDs are given, all 6 presets are used; otherwise only the listed ones.
 
 ```bash
-ppsp --stacks-process --variants natu,sel3,fatc,m06p
+ppsp -p --variants natu,sel3,fatc,m06p
 # → enfuse: [natu, sel3]  TMO: [fatc, m06p]  gradings: all 6 → 24 variants
 
-ppsp --stacks-process --variants sel3,fatc,m06p,dvi1
+ppsp -p --variants sel3,fatc,m06p,dvi1
 # → enfuse: [sel3]  TMO: [fatc, m06p]  gradings: [dvi1] → 2 variants
 ```
 
 **Mode 3 — Exact chain specs** (any token contains `-`): generates precisely those chains, one output file per spec. The format per spec is `{enfuse-id}-{grading-id}` or `{enfuse-id}-{tmo-id}-{grading-id}`.
 
 ```bash
-ppsp --stacks-process --variants sel4-fatc-dvi1,sel4-fatc-neut,sel4-m06p-dvi1
+ppsp -p --variants sel4-fatc-dvi1,sel4-fatc-neut,sel4-m06p-dvi1
 # → exactly 3 variants per stack, with exactly those processing chains
 ```
 
@@ -275,17 +282,18 @@ The z-tier label is encoded in every output filename. `--generate` uses whatever
 |---|---|---|
 | `z100` | 100 % | `dcraw` without `-h`; used by `--generate` for full-quality output |
 | `z25` | ≈25 % | `dcraw -h`; default for discovery |
-| `z13` | ≈12.5 % | `dcraw -h` then `mogrify -resize 50%`; selected with `--fast` |
+| `z6` | ≈6.25 % | `dcraw -h` then `mogrify -resize 50%`; selected with `--fast` |
 
 #### Preset variant levels (Mode 1)
 
 Each preset also includes a default set of grading presets. Variants = (enfuse × gradings) + (enfuse × TMO × gradings).
 
-| Level | Enfuse IDs | TMO IDs | Grading IDs | Total variants |
-|---|---|---|---|---|
-| `some` *(default)* | `natu`, `sel3`, `sel4` | `m08n`, `r02p`, `dras` | `neut`, `brig`, `dvi1` | 36 |
-| `many` | `natu`, `sel3`, `sel4`, `sel6`, `cont` | `m08n`, `m08c`, `m06p`, `r02p`, `dras`, `fatc` | `neut`, `warm`, `brig`, `dvi1`, `dvi2` | 225 |
-| `all` | all nine | all thirteen | all six | 1053 |
+| Level | Enfuse IDs | TMO IDs | Grading IDs |
+|---|---|---|---|
+| `some` *(default)* | `sel4` | `m08n`, `fatn` | `neut`, `dvi1` |
+| `many` | `natu`, `sel3`, `sel4` | `m08n`, `fatn` | `neut`, `dvi1` |
+| `lots` | `natu`, `sel3`, `sel4`, `sel6`, `cont` | `m08n`, `m08c`, `m06p`, `r02p`, `dras`, `fatc` | `neut`, `warm`, `brig`, `dvi1`, `dvi2` |
+| `all` | all nine | all sixteen | all six |
 
 #### Enfuse variants
 
@@ -313,22 +321,24 @@ For each operator, a `d`-suffix "defaults" variant is listed first (no extra fla
 
 > For single-frame stacks (no HDR brackets), enfuse is skipped and tone-mapping runs directly on the converted TIFF, producing a "pseudo-HDR" polish effect.
 
-| ID | Operator | Character | Tuning flags |
+| ID | Operator | Character | Key tuning flags |
 |---|---|---|---|
 | `m08d` | Mantiuk '08 | Luminance defaults | — |
-| `m08n` | Mantiuk '08 | Natural / balanced — best all-rounder for interiors | `--tmoM08ColorSaturation 1.2 --tmoM08ConstrastEnh 2.0` |
-| `m08c` | Mantiuk '08 | Contrast / punch; bright windows | `--tmoM08ColorSaturation 1.2 --tmoM08ConstrastEnh 3.0` |
+| `m08n` | Mantiuk '08 | Natural / balanced; bright editorial look — best all-rounder for interiors | `--tmoM08ColorSaturation 1.2 --tmoM08ConstrastEnh 2.0 --gamma 1.2 --saturation 1.2 --postgamma 1.1` |
+| `m08c` | Mantiuk '08 | Higher contrast, same brightness as m08n; windows and mixed-light scenes | `--tmoM08ColorSaturation 1.3 --tmoM08ConstrastEnh 3.0 --gamma 1.2 --postgamma 1.1` |
 | `m06d` | Mantiuk '06 | Luminance defaults | — |
-| `m06p` | Mantiuk '06 | Punch / pop | `--tmoM06Contrast 0.7 --tmoM06Saturation 1.4 --tmoM06Detail 1.0` |
+| `m06p` | Mantiuk '06 | Punch / pop; strong texture micro-contrast — wood, stone, tile | `--tmoM06Contrast 0.7 --tmoM06Saturation 1.4 --tmoM06Detail 1.0 --gamma 1.2 --postgamma 1.1` |
 | `drad` | Drago | Luminance defaults | — |
-| `dras` | Drago | Soft, film-like highlight roll-off; strong window light | `--tmoDrgBias 0.85` |
+| `dras` | Drago | Soft logarithmic highlight roll-off with shadow lift; contre-jour and blue-hour | `--tmoDrgBias 0.85 --postgamma 1.1` |
 | `r02d` | Reinhard '02 | Luminance defaults | — |
-| `r02p` | Reinhard '02 | Photographic / clean; lowest artefact risk | `--tmoR02Key 0.18 --tmoR02Phi 1.0` |
+| `r02p` | Reinhard '02 | Zone-system photographic tone curve; lowest artefact risk, brightened | `--tmoR02Key 0.18 --tmoR02Phi 1.0 --postgamma 1.1` |
 | `fatd` | Fattal | Luminance defaults | — |
-| `fatn` | Fattal | Neutral / low saturation | `--tmoFatColor 0.8 --gamma 1.6 --postgamma 1.2` |
-| `fatc` | Fattal | Creative / dramatic; exteriors and high-contrast shots | `--tmoFatAlpha 0.8 --tmoFatBeta 0.9` |
+| `fatn` | Fattal | Tamed / natural; gradient pop with desaturated output and moderate brightness lift | `--tmoFatColor 0.8 --gamma 1.3 --postgamma 1.1` |
+| `fatc` | Fattal | Creative / dramatic; full local contrast on exteriors and high-contrast architecture | `--tmoFatAlpha 0.8 --tmoFatBeta 0.9 --postgamma 1.05` |
 | `ferr` | Ferradans | Luminance defaults | — |
 | `ferw` | Ferwerda | Luminance defaults | — |
+| `kimd` | KimKautz | Luminance defaults | — |
+| `kimn` | KimKautz | Clean magazine look; no halos, no colour shift — luxury interiors and white walls | `--tmoKimKautzC1 0.8 --tmoKimKautzC2 1.2 --postgamma 1.1` |
 
 #### Color-grading presets
 
@@ -345,7 +355,7 @@ Applied via ImageMagick `convert` as the final stage after fusion/TMO:
 
 #### Output structure after discovery
 
-Each stack's discovery variants — and all combined intermediates — are written into a z-tier subfolder (`z25/` or `z13/`) inside the stack directory. Only the per-frame source files (ARW, JPG companions, and their raw-converted TIFs) stay in the stack root. The collage is also written into the z-tier subfolder. Alongside this, `ppsp` creates a flat `variants/` folder at the shoot root containing hard links (fallback: copies) to every variant and collage from all stacks — this is the folder you browse and cull from.
+Each stack's discovery variants — and all combined intermediates — are written into a z-tier subfolder (`z25/` or `z6/`) inside the stack directory. Only the per-frame source files (ARW, JPG companions, and their raw-converted TIFs) stay in the stack root. The collage is also written into the z-tier subfolder. Alongside this, `ppsp` creates a flat `variants/` folder at the shoot root containing hard links (fallback: copies) to every variant and collage from all stacks — this is the folder you browse and cull from.
 
 ```
 shoot/
@@ -369,7 +379,7 @@ shoot/
 
 #### Collage
 
-After all variants for a stack are produced, a single `<stack-name>-collage.jpg` is written into the z-tier subfolder alongside the variants. All tiles (originals first, then variants) are arranged in a grid whose dimensions are chosen to approximate a 16:9 aspect ratio. Each tile is 640 px wide (preserving the source aspect ratio) and labeled with its chain identifier (`z25-sel3-fatc-dvi2`) in 32 pt white text overlaid at the bottom center of the tile.
+After all variants for a stack are produced, a single `<stack-name>-collage.jpg` is written into the z-tier subfolder alongside the variants. All tiles (originals first, then variants) are arranged in a grid whose dimensions are chosen to approximate a 16:9 aspect ratio. Each tile is 640 px wide (preserving the source aspect ratio). Each tile is annotated at the bottom center: the image number (NNNN) in large bold at the top of the label, and the chain spec (`z25-sel3-fatc-dvi2`) in smaller text below. Individual variant JPEGs are also annotated the same way (NNNN bold + chain spec), so you can identify them from any image viewer without relying on filename display.
 
 ### Step 6 — Variant selection
 
@@ -410,6 +420,8 @@ ppsp --generate ppsp_generate.csv
 
 Generates outputs from the surviving selection. The z-tier is read from each target's chain and executed in sequence, skipping any intermediate that already exists (unless `--redo`). Outputs land in `out_full/` and `out_web/`.
 
+The `--stacks` global flag limits generation to matching stacks (see Global options).
+
 ```bash
 ppsp --generate variants/                                              # Method A: folder → z100
 ppsp --generate variants/ --half                                        # Method A: folder → z25
@@ -424,7 +436,7 @@ ppsp --generate variants/ --redo                                        # force 
 
 #### Chain spec syntax
 
-Pass one or more z-tier chain specs directly as arguments. Each spec is expanded to all stacks under `--source` — no need to list individual files:
+Pass one or more z-tier chain specs directly as arguments. Each spec is expanded to all stacks under `--dir` — no need to list individual files:
 
 ```bash
 ppsp --generate z25-sel4-m06p-dvi1                      # one chain, all stacks, at z25
@@ -440,7 +452,7 @@ Form: `{z-tier}-{enfuse-id}-{grading-id}` or `{z-tier}-{enfuse-id}-{tmo-id}-{gra
 When scanning a directory (e.g. `variants/`), filenames are converted to z100 by default. Pass `--half` to keep them at z25 and reuse all discovery-phase intermediates:
 
 ```bash
-ppsp --stacks-process --fast        # z13 discovery; z25 TIFFs also saved as side-effect
+ppsp --stacks-process --fast        # z6 discovery; z25 TIFFs also saved as side-effect
 ppsp --generate variants/ --half    # grade to z25 at quality 95 — reuses all intermediates
 ```
 
@@ -460,9 +472,9 @@ ppsp --generate my_selection.csv    # no --half needed; z-tier from each filenam
 
 ## Additional commands
 
-`--arws-enhance [FILES...]` (`-e`) converts individual ARW files to high-quality enhanced JPGs without stacking or grading. Defaults to all ARWs under `--source`.
+`--arws-enhance [FILES...]` (`-e`) converts individual ARW files to high-quality enhanced JPGs without stacking or grading. Defaults to all ARWs under `--dir`.
 
-`--cleanup` (`-C`) removes intermediate files from all z-tier subfolders under `--source`: all TIFFs (aligned frames + enfuse temps) and TMO temp JPGs (identified by having a TMO id as their last chain component rather than a grading id). Final variant JPGs and collages are preserved. Run this after generation is complete and you no longer need to regenerate variants.
+`--cleanup` (`-C`) removes intermediate files from all z-tier subfolders under `--dir`: all TIFFs (aligned frames + enfuse temps) and TMO temp JPGs (identified by having a TMO id as their last chain component rather than a grading id). Final variant JPGs and collages are preserved. Run this after generation is complete and you no longer need to regenerate variants.
 
 ## Output structure
 
@@ -509,3 +521,15 @@ ruff check src/
 ```
 
 **Test data:** place a small set of Sony ARW + JPG pairs in `test_data/`. Tests requiring real image data are automatically skipped if `test_data/` is absent or empty. The directory is gitignored and not distributed with the package. See [DESIGN.md](DESIGN.md) for the full testing strategy and code architecture.
+
+## Further reading
+
+For a deep-dive into the underlying tools and the reasoning behind ppsp's built-in presets, see **[GUIDE.md](GUIDE.md)**. It covers:
+
+- RAW conversion with `dcraw` — parameters, colour science, resolution tiers
+- Image alignment with `align_image_stack` — feature detection, HDR vs focus-stack modes
+- Exposure fusion with `enfuse` — Laplacian pyramid, weight functions, all built-in variant IDs
+- Tone-mapping with `luminance-hdr-cli` — every supported operator, parameter guide, when to use each one
+- Color grading with ImageMagick — S-curve contrast, sharpening, the six built-in grading presets
+- Photography-context guide — which operator combinations work best for each shot type
+

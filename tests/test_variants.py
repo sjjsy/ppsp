@@ -17,13 +17,20 @@ from ppsp.variants import (
 
 def test_expand_variants_some():
     enfuse_ids, tmo_ids, grading_ids = expand_variants("some")
-    assert set(enfuse_ids) == {"natu", "sel3", "sel4"}
-    assert set(tmo_ids) == {"m08n", "r02p", "dras"}
-    assert set(grading_ids) == {"neut", "brig", "dvi1"}
+    assert set(enfuse_ids) == {"sel4"}
+    assert set(tmo_ids) == {"m08n", "fatn"}
+    assert set(grading_ids) == {"neut", "dvi1"}
 
 
 def test_expand_variants_many():
     enfuse_ids, tmo_ids, grading_ids = expand_variants("many")
+    assert set(enfuse_ids) == {"natu", "sel3", "sel4"}
+    assert set(tmo_ids) == {"m08n", "fatn"}
+    assert set(grading_ids) == {"neut", "dvi1"}
+
+
+def test_expand_variants_lots():
+    enfuse_ids, tmo_ids, grading_ids = expand_variants("lots")
     assert set(enfuse_ids) == {"natu", "sel3", "sel4", "sel6", "cont"}
     assert set(tmo_ids) == {"m08n", "m08c", "m06p", "r02p", "dras", "fatc"}
     assert len(grading_ids) == 5
@@ -35,6 +42,9 @@ def test_expand_variants_all():
     assert set(enfuse_ids) == set(ENFUSE_VARIANTS.keys())
     assert set(tmo_ids) == set(TMO_VARIANTS.keys())
     assert set(grading_ids) == set(GRADING_PRESETS.keys())
+    # KimKautz must be present in the all level
+    assert "kimd" in tmo_ids
+    assert "kimn" in tmo_ids
 
 
 def test_expand_variants_custom_list_with_grading():
@@ -182,10 +192,10 @@ def test_parse_full_chain_spec_without_tmo():
     assert spec.grading_id == "neut"
 
 
-def test_parse_full_chain_spec_z13():
-    spec = parse_full_chain_spec("z13-natu-fatc-brig")
+def test_parse_full_chain_spec_z6():
+    spec = parse_full_chain_spec("z6-natu-fatc-brig")
     assert spec is not None
-    assert spec.z_tier == "z13"
+    assert spec.z_tier == "z6"
     assert spec.enfuse_id == "natu"
     assert spec.tmo_id == "fatc"
     assert spec.grading_id == "brig"
@@ -202,6 +212,10 @@ def test_parse_full_chain_spec_focu():
 
 def test_parse_full_chain_spec_invalid_ztier():
     assert parse_full_chain_spec("z99-sel4-m06p-dvi1") is None
+
+
+def test_parse_full_chain_spec_z13_now_invalid():
+    assert parse_full_chain_spec("z13-natu-fatc-brig") is None
 
 
 def test_parse_full_chain_spec_no_ztier():

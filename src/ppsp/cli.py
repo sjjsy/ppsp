@@ -35,8 +35,11 @@ def _build_parser():
     )
 
     # Global options
-    parser.add_argument("--source", "-s", default=".", metavar="DIR",
+    parser.add_argument("--dir", "-d", default=".", metavar="DIR",
                         help="Directory containing shoot images (default: current dir)")
+    parser.add_argument("--stacks", "-s", nargs="+", metavar="SPEC",
+                        help="Limit scope to matching stacks: full stack name, 4-digit frame number, "
+                             "or NNNN-NNNN range (e.g. 2126 or 2126-2150)")
     parser.add_argument("--quality", "-q", type=int, default=80, metavar="INT",
                         help="JPEG quality for all internal conversions (default: 80)")
     parser.add_argument("--batch", "-b", action="store_true",
@@ -46,7 +49,7 @@ def _build_parser():
     parser.add_argument("--redo", "-R", action="store_true",
                         help="Regenerate outputs even if they already exist")
 
-    # Command flags (mutually exclusive group allows one command at a time)
+    # Command flags
     cmds = parser.add_argument_group("commands")
 
     cmds.add_argument("--rename", "-r", nargs="*", metavar="FILE",
@@ -64,18 +67,18 @@ def _build_parser():
     cmds.add_argument("--stacks-cull", "-c", action="store_true",
                       help="Generate labeled culling previews in cull/")
 
-    cmds.add_argument("--stacks-prune", "-p", action="store_true",
+    cmds.add_argument("--stacks-prune", "-P", action="store_true",
                       help="Remove stack folders with no surviving cull preview")
 
-    cmds.add_argument("--stacks-process", "-P", nargs="*", metavar="STACK",
-                      help="Variant discovery at reduced resolution")
+    cmds.add_argument("--stacks-process", "-p", action="store_true",
+                      help="Variant discovery at reduced resolution (use --stacks to limit scope)")
     cmds.add_argument("--variants", "-V", default="some", metavar="LEVEL_OR_LIST",
                       help="Preset level (some/many/all) or comma-separated IDs (default: some)")
     cmds.add_argument("--fast", "-f", action="store_true",
-                      help="Use z13 resolution instead of z25")
+                      help="Use z6 resolution instead of z25 for variant discovery")
 
     cmds.add_argument("--generate", "-g", nargs="+", metavar="TARGET",
-                      help="Generate variants from chain filenames, CSV, or TXT")
+                      help="Generate variants from chain filenames, CSV, TXT, or chain specs")
     cmds.add_argument("--half", action="store_true",
                       help="Generate at z25 (half-linear resolution) instead of z100 (full)")
 
@@ -94,7 +97,8 @@ def main(argv=None) -> None:
     args = parser.parse_args(argv)
 
     setup_logging(args.verbose)
-    source = Path(args.source).resolve()
+    source = Path(args.dir).resolve()
+    stacks_specs = list(args.stacks) if args.stacks else None
 
     # Dispatch
     if args.rename is not None:
@@ -114,16 +118,25 @@ def main(argv=None) -> None:
     elif args.stacks_prune:
         cmd_stacks_prune(source)
 
-    elif args.stacks_process is not None:
-        stacks = list(args.stacks_process) if args.stacks_process else []
-        cmd_stacks_process(stacks, source,
-                           variants_arg=args.variants,
-                           fast=args.fast,
-                           quality=args.quality,
-                           redo=args.redo)
+    elif args.stacks_process:
+        cmd_stacks_process(
+            source,
+            variants_arg=args.variants,
+            fast=args.fast,
+            quality=args.quality,
+            redo=args.redo,
+            stacks_specs=stacks_specs,
+        )
 
     elif args.generate:
-        cmd_generate(list(args.generate), source, quality=95, redo=args.redo, half=args.half)
+        cmd_generate(
+            list(args.generate),
+            source,
+            quality=95,
+            redo=args.redo,
+            half=args.half,
+            stacks_specs=stacks_specs,
+        )
 
     elif args.arws_enhance is not None:
         files = [Path(f) for f in args.arws_enhance] if args.arws_enhance else []

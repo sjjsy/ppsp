@@ -6,7 +6,7 @@ import logging
 import os
 import shutil
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Set
 
 from .export import export_variants
 from .models import ChainSpec, StackType, parse_chain
@@ -273,15 +273,23 @@ def cmd_stacks_cull(source: Path, quality: int = 80, redo: bool = False) -> None
             )
 
         if preview_path.exists():
+            parts = stack_name.split("-")
+            nnnn = parts[2] if len(parts) >= 3 else stack_name
             run_command(
                 [
                     "mogrify",
-                    "-font", "Liberation-Sans",
+                    "-font", "Liberation-Sans-Bold",
                     "-fill", "white",
-                    "-undercolor", "#00000080",
-                    "-pointsize", "26",
-                    "-gravity", "NorthEast",
-                    "-annotate", "+10+10", preview_path.stem,
+                    "-undercolor", "#00000099",
+                    "-pointsize", "36",
+                    "-gravity", "South",
+                    "-annotate", "+0+36",
+                    nnnn,
+                    "-font", "Liberation-Sans",
+                    "-pointsize", "22",
+                    "-gravity", "South",
+                    "-annotate", "+0+8",
+                    f"×{count}",
                     str(preview_path),
                 ],
                 "annotate cull preview",
@@ -348,12 +356,12 @@ def cmd_stacks_prune(source: Path) -> None:
 
 
 def cmd_stacks_process(
-    stacks: List[str],
     source: Path,
     variants_arg: str = "some",
     fast: bool = False,
     quality: int = 80,
     redo: bool = False,
+    stacks_specs: Optional[List[str]] = None,
 ) -> None:
     """Run variant discovery for each stack and write ppsp_generate.csv — see README.md § Step 5."""
     tokens = [t.strip() for t in variants_arg.split(",") if t.strip()]
@@ -373,10 +381,11 @@ def cmd_stacks_process(
         # Mode 1 (preset) or Mode 2 (bare IDs)
         enfuse_ids, tmo_ids, grading_ids = expand_variants(variants_arg)
 
-    z_tier = "z13" if fast else "z25"
+    z_tier = "z6" if fast else "z25"
 
-    if stacks:
-        stack_dirs = [source / s if not Path(s).is_absolute() else Path(s) for s in stacks]
+    stacks_filter = _resolve_stack_specs(stacks_specs or [], source)
+    if stacks_filter is not None:
+        stack_dirs = sorted(source / name for name in sorted(stacks_filter) if (source / name).is_dir())
     else:
         stack_dirs = sorted(d for d in source.iterdir() if d.is_dir() and d.name.endswith("-stack"))
 
@@ -496,15 +505,60 @@ def _write_generate_csv(csv_path: Path, generated: List[str], redo: bool) -> Non
             writer.writerow({"Filename": filename, "Generate": gen})
 
 
+def _resolve_stack_specs(specs: List[str], source: Path) -> Optional[Set[str]]:
+    """Resolve --stacks specs to a set of stack dir names; returns None when specs is empty."""
+    import re as _re
+    if not specs:
+        return None
+    result: Set[str] = set()
+    for spec in specs:
+        spec = spec.strip()
+        if spec.endswith("-stack"):
+            result.add(spec)
+        elif _re.match(r"^\d{1,4}-\d{1,4}$", spec):
+            lo, hi = int(spec.split("-")[0]), int(spec.split("-")[1])
+            for d in source.iterdir():
+                if d.is_dir() and d.name.endswith("-stack"):
+                    parts = d.name.split("-")
+                    if len(parts) >= 4 and parts[2].isdigit():
+                        n = int(parts[2])
+                        if lo <= n <= hi:
+                            result.add(d.name)
+        elif _re.match(r"^\d+$", spec):
+            nnnn = spec.zfill(4)
+            for d in source.iterdir():
+                if d.is_dir() and d.name.endswith("-stack"):
+                    parts = d.name.split("-")
+                    if len(parts) >= 4 and parts[2] == nnnn:
+                        result.add(d.name)
+        else:
+            logging.warning("Cannot parse stack spec '%s', skipping", spec)
+    return result
+
+
+def _filename_to_stack_name(filename: str) -> Optional[str]:
+    """Derive the stack directory name from a variant filename."""
+    parts = Path(filename).stem.split("-")
+    if len(parts) < 3:
+        return None
+    return "-".join(parts[:3]) + "-stack"
+
+
 def _looks_like_chain_spec(s: str) -> bool:
     """Return True if s is a z-tier chain spec (e.g. z25-sel4-ma06-dvi1), not a file path."""
     import re
-    return bool(re.match(r"^z(100|25|13)-", s)) and "/" not in s and "\\" not in s
+    return bool(re.match(r"^z(100|25|6)-", s)) and "/" not in s and "\\" not in s
 
 
-def _expand_chain_spec_to_all_stacks(spec: "ChainSpec", source: Path) -> List[str]:
+def _expand_chain_spec_to_all_stacks(
+    spec: "ChainSpec",
+    source: Path,
+    stacks_filter: Optional[Set[str]] = None,
+) -> List[str]:
     """Return one canonical filename per stack under source for the given chain spec."""
     stack_dirs = sorted(d for d in source.iterdir() if d.is_dir() and d.name.endswith("-stack"))
+    if stacks_filter is not None:
+        stack_dirs = [d for d in stack_dirs if d.name in stacks_filter]
     if not stack_dirs:
         logging.warning("No stack directories found under %s", source)
     filenames = []
@@ -521,13 +575,13 @@ def _expand_chain_spec_to_all_stacks(spec: "ChainSpec", source: Path) -> List[st
 def _to_ztier(filename: str, z_tier: str) -> str:
     """Replace the z-tier token in a variant filename with the requested tier."""
     import re
-    return re.sub(r"-z(100|25|13)-", f"-{z_tier}-", filename, count=1)
+    return re.sub(r"-z(100|25|6)-", f"-{z_tier}-", filename, count=1)
 
 
 def _has_ztier(filename: str) -> bool:
-    """Return True if filename contains a z-tier token (-z100-, -z25-, or -z13-)."""
+    """Return True if filename contains a z-tier token (-z100-, -z25-, or -z6-)."""
     import re
-    return bool(re.search(r"-z(100|25|13)-", filename))
+    return bool(re.search(r"-z(100|25|6)-", filename))
 
 
 def _to_z100(filename: str) -> str:
@@ -545,6 +599,7 @@ def cmd_generate(
     quality: int = 95,
     redo: bool = False,
     half: bool = False,
+    stacks_specs: Optional[List[str]] = None,
 ) -> None:
     """Generate variants from chain filenames, CSV, or TXT — see README.md § Step 7.
 
@@ -552,7 +607,8 @@ def cmd_generate(
     All z25 intermediates from the discovery phase are reused automatically.
     """
     z_tier = "z25" if half else "z100"
-    filenames = _resolve_generate_targets(targets, source, z_tier=z_tier)
+    stacks_filter = _resolve_stack_specs(stacks_specs or [], source)
+    filenames = _resolve_generate_targets(targets, source, z_tier=z_tier, stacks_filter=stacks_filter)
     if not filenames:
         logging.warning("No generate targets found")
         return
@@ -576,6 +632,7 @@ def _resolve_generate_targets(
     targets: List[str],
     source: Path,
     z_tier: str = "z100",
+    stacks_filter: Optional[Set[str]] = None,
 ) -> List[str]:
     """Resolve targets to a flat list of filenames to generate.
 
@@ -596,7 +653,7 @@ def _resolve_generate_targets(
         for t in targets:
             spec = parse_full_chain_spec(t)
             if spec is not None:
-                filenames.extend(_expand_chain_spec_to_all_stacks(spec, source))
+                filenames.extend(_expand_chain_spec_to_all_stacks(spec, source, stacks_filter=stacks_filter))
             else:
                 logging.warning("Cannot parse chain spec '%s', skipping", t)
         return filenames
@@ -612,21 +669,28 @@ def _resolve_generate_targets(
             filenames = []
             for f in sorted(p.glob("*.jpg")):
                 if _has_ztier(f.name):
-                    filenames.append(_to_ztier(f.name, z_tier))
+                    if stacks_filter is None or _filename_to_stack_name(f.name) in stacks_filter:
+                        filenames.append(_to_ztier(f.name, z_tier))
             if not filenames:
                 logging.warning("No variant JPGs found in %s", p)
             return filenames
 
         if p.suffix.lower() == ".csv" and p.exists():
             with open(p, encoding="utf-8", newline="") as fh:
-                return [
+                rows = [
                     row["Filename"]
                     for row in _csv.DictReader(fh, delimiter="\t")
                     if row.get("Generate", "").strip().lower() == "x"
                 ]
+            if stacks_filter is not None:
+                rows = [f for f in rows if _filename_to_stack_name(f) in stacks_filter]
+            return rows
 
         if p.suffix.lower() == ".txt" and p.exists():
-            return [ln.strip() for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
+            lines = [ln.strip() for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
+            if stacks_filter is not None:
+                lines = [f for f in lines if _filename_to_stack_name(f) in stacks_filter]
+            return lines
 
     # Multiple targets: process each — chain specs expand, everything else is a filename.
     filenames = []
@@ -634,11 +698,12 @@ def _resolve_generate_targets(
         if _looks_like_chain_spec(t):
             spec = parse_full_chain_spec(t)
             if spec is not None:
-                filenames.extend(_expand_chain_spec_to_all_stacks(spec, source))
+                filenames.extend(_expand_chain_spec_to_all_stacks(spec, source, stacks_filter=stacks_filter))
             else:
                 logging.warning("Cannot parse chain spec '%s', skipping", t)
         else:
-            filenames.append(t)
+            if stacks_filter is None or _filename_to_stack_name(t) in stacks_filter:
+                filenames.append(t)
     return filenames
 
 
@@ -846,7 +911,7 @@ def run_full_workflow(
         cmd_stacks_prune(source)
 
     if _prompt("Step 5: Variant discovery"):
-        cmd_stacks_process([], source, variants_arg=variants_arg, fast=fast, quality=quality, redo=redo)
+        cmd_stacks_process(source, variants_arg=variants_arg, fast=fast, quality=quality, redo=redo)
 
     selection_method = "folder"
     if not batch:

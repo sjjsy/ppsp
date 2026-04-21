@@ -73,51 +73,61 @@ ENFUSE_VARIANTS: Dict[str, List[str]] = {
 # Within each operator group the defaults variant (d-suffix, no extra flags) is listed first,
 # followed by tuned variants whose suffix hints at the emphasis vs. the default.
 TMO_VARIANTS: Dict[str, List[str]] = {
-    # --- Mantiuk '08 ---
-    # Notes:
-    #  --tmoM08Contrast – Controls the overall dynamic-range compression. Lower values (0.2–0.4) give a very natural, film-like look. Higher values (0.5–0.7) add more punch. Typical real-estate range: 0.25 – 0.4 (this is why I recommend Mantiuk ’08 as the daily driver).
-    #  --tmoM08Saturation – Post-mapping colour vibrancy. Typical real-estate range: 1.05 – 1.15.
-    #  --tmoM08Detail – Local detail / micro-contrast. Typical real-estate range: 0.9 – 1.1.
+    # --- Mantiuk ‘08 ---
+    # --tmoM08ColorSaturation: post-mapping colour vibrancy (1.0 = neutral, 1.2–1.3 typical).
+    # --tmoM08ConstrastEnh: contrast enhancement multiplier; note intentional typo in the binary.
     "m08d": ["--tmo", "mantiuk08"],                                              # Luminance defaults
-    "m08n": ["--tmo", "mantiuk08",                                               # Natural / balanced
+    "m08n": ["--tmo", "mantiuk08",                                               # Natural / balanced; bright editorial look
              "--tmoM08ColorSaturation", "1.2",
              "--tmoM08ConstrastEnh", "2.0",
              "--gamma", "1.2",
              "--saturation", "1.2",
              "--postgamma", "1.1"],
-    "m08c": ["--tmo", "mantiuk08",                                               # Contrast / punch
+    "m08c": ["--tmo", "mantiuk08",                                               # Contrast / punch; higher contrast same brightness
              "--tmoM08ColorSaturation", "1.3",
-             "--tmoM08ConstrastEnh", "3.0"],
-    # --- Mantiuk '06 ---
+             "--tmoM08ConstrastEnh", "3.0",
+             "--gamma", "1.2",
+             "--postgamma", "1.1"],
+    # --- Mantiuk ‘06 ---
     "m06d": ["--tmo", "mantiuk06"],                                              # Luminance defaults
-    "m06p": ["--tmo", "mantiuk06",                                               # Punch / pop
+    "m06p": ["--tmo", "mantiuk06",                                               # Punch / pop; strong micro-contrast
              "--tmoM06Contrast", "0.7",
              "--tmoM06Saturation", "1.4",
              "--tmoM06Detail", "1.0",
              "--gamma", "1.2",
-             "--saturation", "1.2",
              "--postgamma", "1.1"],
     # --- Drago ---
     "drad": ["--tmo", "drago"],                                                  # Luminance defaults
-    "dras": ["--tmo", "drago",                                                   # Soft highlight roll-off
-             "--tmoDrgBias", "0.85"],
-    # --- Reinhard '02 ---
+    "dras": ["--tmo", "drago",                                                   # Soft highlight roll-off; bright shadows
+             "--tmoDrgBias", "0.85",
+             "--postgamma", "1.1"],
+    # --- Reinhard ‘02 ---
     "r02d": ["--tmo", "reinhard02"],                                             # Luminance defaults
-    "r02p": ["--tmo", "reinhard02",                                              # Photographic / clean
+    "r02p": ["--tmo", "reinhard02",                                              # Photographic / clean; zone-system key, brightened
              "--tmoR02Key", "0.18",
-             "--tmoR02Phi", "1.0"],
+             "--tmoR02Phi", "1.0",
+             "--postgamma", "1.1"],
     # --- Fattal ---
     "fatd": ["--tmo", "fattal"],                                                 # Luminance defaults
-    "fatn": ["--tmo", "fattal",                                                  # More neutral version
+    "fatn": ["--tmo", "fattal",                                                  # Tamed / natural; desaturated, moderately lifted
              "--tmoFatColor", "0.8",
-             "--gamma", "1.6",
-             "--postgamma", "1.2"],
-    "fatc": ["--tmo", "fattal",                                                  # Creative / dramatic
+             "--gamma", "1.3",
+             "--postgamma", "1.1"],
+    "fatc": ["--tmo", "fattal",                                                  # Creative / dramatic; full gradient pop, subtle lift
              "--tmoFatAlpha", "0.8",
-             "--tmoFatBeta", "0.9"],
+             "--tmoFatBeta", "0.9",
+             "--postgamma", "1.05"],
     # --- Ferradans and Ferwerda (no tuned variants) ---
     "ferr": ["--tmo", "ferradans"],
     "ferw": ["--tmo", "ferwerda"],
+    # --- KimKautz ---
+    # c1 = local contrast enhancement scale; c2 = global contrast / brightness balance.
+    # Yields a clean, high-end magazine look — excellent for bright luxury interiors.
+    "kimd": ["--tmo", "kimkautz"],                                               # Luminance defaults
+    "kimn": ["--tmo", "kimkautz",                                                # Natural / luxury; clean magazine look
+             "--tmoKimKautzC1", "0.8",
+             "--tmoKimKautzC2", "1.2",
+             "--postgamma", "1.1"],
 }
 
 GRADING_PRESETS: Dict[str, List[str]] = {
@@ -165,13 +175,17 @@ GRADING_PRESETS: Dict[str, List[str]] = {
 
 # Preset level definitions: (enfuse_ids, tmo_ids, grading_ids) — see README.md § Variant levels
 VARIANT_LEVELS: Dict[str, Tuple[List[str], List[str], List[str]]] = {
-    # Primary recommendations for real-estate / interior photography
     "some": (
-        ["natu", "sel3", "sel4"],
-        ["m08n", "r02p", "dras"],
-        ["neut", "brig", "dvi1"],
+        ["sel4"],
+        ["m08n", "fatn"],
+        ["neut", "dvi1"],
     ),
     "many": (
+        ["natu", "sel3", "sel4"],
+        ["m08n", "fatn"],
+        ["neut", "dvi1"],
+    ),
+    "lots": (
         ["natu", "sel3", "sel4", "sel6", "cont"],
         ["m08n", "m08c", "m06p", "r02p", "dras", "fatc"],
         ["neut", "warm", "brig", "dvi1", "dvi2"],
@@ -197,13 +211,13 @@ def parse_full_chain_spec(s: str) -> Optional[ChainSpec]:
     """Parse a chain spec that includes an explicit z-tier prefix: 'z25-sel4-ma06-dvi1'.
 
     Returns a ChainSpec with z_tier set, or None if invalid.
-    The z-tier must be one of z100, z25, or z13.
+    The z-tier must be one of z100, z25, or z6.
     """
     parts = s.strip().split("-", 1)
     if len(parts) != 2:
         return None
     z_tier = parts[0]
-    if z_tier not in ("z100", "z25", "z13"):
+    if z_tier not in ("z100", "z25", "z6"):
         return None
     spec = parse_variant_chain(parts[1])
     if spec is None:

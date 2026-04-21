@@ -58,10 +58,10 @@ class ChainSpec:
 # Pattern: YYYYMMDDHHMMSS-CCCxxx-NNNN-<chain>.<ext>
 # chain = z-tier + enfuse-id + optional-tmo-id + grading-id + optional -web
 _CHAIN_RE = re.compile(
-    r"^(?P<z>z(?:100|25|13))-(?P<enfuse>[a-z0-9]+)-(?P<rest>.+)$"
+    r"^(?P<z>z(?:100|25|6))-(?P<enfuse>[a-z0-9]+)-(?P<rest>.+)$"
 )
 
-_KNOWN_TMOS = {"ma06", "ma08", "ferr", "fatt", "ferw"}
+_KNOWN_TMOS = {"m08d", "m08n", "m08c", "m06d", "m06p", "drad", "dras", "r02d", "r02p", "fatd", "fatn", "fatc", "ferr", "ferw", "kimd", "kimn"}
 _KNOWN_GRADINGS = {"neut", "warm", "brig", "deno", "dvi1", "dvi2"}
 
 
@@ -86,7 +86,7 @@ def parse_chain(filename: str, tmo_ids: Optional[List[str]] = None) -> Optional[
         return None
 
     z_tier = chain_parts[0]
-    if z_tier not in ("z100", "z25", "z13"):
+    if z_tier not in ("z100", "z25", "z6"):
         return None
 
     if len(chain_parts) < 3:

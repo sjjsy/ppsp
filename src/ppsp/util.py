@@ -61,7 +61,7 @@ def run_command(
             logging.warning(rv.stderr.strip())
         elapsed = time.perf_counter() - start
         if elapsed > 4:
-            logging.info("  %.1fs taken by command %s  # %s", elapsed, display, desc)
+            logging.info("  %.1fs taken by the command (%s)  # %s", elapsed, display.split(' ')[0], desc)
     except subprocess.CalledProcessError as exc:
         logging.error("Failed: %s", exc)
         if check:

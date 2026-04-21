@@ -31,11 +31,11 @@ def _deduplicate_companions(photos: List[Photo]) -> List[Photo]:
     return result
 
 
-def _z25_sibling_of_z13(z13_tif: Path) -> Optional[Path]:
-    """Return the z25 counterpart path for a z13 TIFF, or None if the name lacks '-z13'."""
-    name = z13_tif.name
-    if "-z13" in name:
-        return z13_tif.with_name(name.replace("-z13", "-z25", 1))
+def _z25_sibling_of_z6(z6_tif: Path) -> Optional[Path]:
+    """Return the z25 counterpart path for a z6 TIFF, or None if the name lacks '-z6'."""
+    name = z6_tif.name
+    if "-z6" in name:
+        return z6_tif.with_name(name.replace("-z6", "-z25", 1))
     return None
 
 
@@ -48,13 +48,13 @@ def convert_raw_to_tiff(
 ) -> bool:
     """Convert an ARW file to a 16-bit TIFF at the requested z-tier — see README.md § Resolution tiers.
 
-    When z_tier is 'z13', the dcraw -h output (z25 quality) is also preserved as a
+    When z_tier is 'z6', the dcraw -h output (z25 quality) is also preserved as a
     sibling '_z25.tif' so that a later --half generate can reuse it without re-running dcraw.
     """
     if out_tif.exists() and not redo:
         return True
 
-    half_size = z_tier in ("z25", "z13")
+    half_size = z_tier in ("z25", "z6")
 
     if raw_converter == "dcraw":
         cmd = ["dcraw", "-T", "-4", "-w", "-q", "3", "-M"]
@@ -67,15 +67,15 @@ def convert_raw_to_tiff(
             logging.error("dcraw did not produce %s", dcraw_out)
             return False
 
-        if z_tier == "z13":
+        if z_tier == "z6":
             # dcraw -h output is z25 quality; save it so future --half generates can reuse it.
-            z25_tif = _z25_sibling_of_z13(out_tif)
+            z25_tif = _z25_sibling_of_z6(out_tif)
             if z25_tif is not None and not z25_tif.exists():
                 dcraw_out.rename(z25_tif)
                 shutil.copy2(z25_tif, out_tif)
             else:
                 dcraw_out.rename(out_tif)
-            run_command(["mogrify", "-resize", "50%", str(out_tif)], "mogrify 50% for z13")
+            run_command(["mogrify", "-resize", "50%", str(out_tif)], "mogrify 50% for z6")
         else:
             dcraw_out.rename(out_tif)
     else:
@@ -84,12 +84,12 @@ def convert_raw_to_tiff(
             ["darktable-cli", str(arw), str(out_tif)],
             f"darktable-cli {z_tier} for {arw.name}",
         )
-        if z_tier == "z13" and out_tif.exists():
+        if z_tier == "z6" and out_tif.exists():
             # Save a z25 copy before downscaling (darktable doesn't have a native half-size flag)
-            z25_tif = _z25_sibling_of_z13(out_tif)
+            z25_tif = _z25_sibling_of_z6(out_tif)
             if z25_tif is not None and not z25_tif.exists():
                 shutil.copy2(out_tif, z25_tif)
-            run_command(["mogrify", "-resize", "50%", str(out_tif)], "mogrify 50% for z13")
+            run_command(["mogrify", "-resize", "50%", str(out_tif)], "mogrify 50% for z6")
 
     if not out_tif.exists():
         return False
@@ -190,6 +190,39 @@ def apply_grading(
     return dst_jpg.exists()
 
 
+def annotate_image(jpg: Path) -> None:
+    """Overlay NNNN (bold, large) and chain spec (smaller) at bottom centre of a variant JPEG.
+
+    Expected filename convention: YYYYMMDDHHMMSS-CCCxxx-NNNN-chain.jpg
+    Modifies the file in place via mogrify.
+    """
+    parts = jpg.stem.split("-")
+    if len(parts) < 5:
+        return
+    nnnn = parts[2]
+    chain = "-".join(parts[3:])
+    run_command(
+        [
+            "mogrify",
+            "-font", "Liberation-Sans-Bold",
+            "-fill", "white",
+            "-undercolor", "#00000099",
+            "-pointsize", "34",
+            "-gravity", "South",
+            "-annotate", "+0+32",
+            nnnn,
+            "-font", "Liberation-Sans",
+            "-pointsize", "22",
+            "-gravity", "South",
+            "-annotate", "+0+8",
+            chain,
+            str(jpg),
+        ],
+        f"annotate {jpg.name}",
+        check=False,
+    )
+
+
 def _copy_exif(source: Path, dest: Path) -> None:
     """Copy all EXIF tags from source to dest with exiftool — see DESIGN.md § EXIF preservation."""
     run_command(
@@ -246,21 +279,26 @@ def create_collage(
 
     TILE_W = 640  # tiles are resized to this width; height follows source aspect ratio
 
-    def labeled_tile(src: Path, label: str, dst: Path) -> Optional[Path]:
+    def labeled_tile_two_line(src: Path, line1: str, line2: str, dst: Path) -> Optional[Path]:
+        """Produce a resized tile with bold NNNN (line1) and smaller chain spec (line2)."""
         if not src.exists():
             return None
         cmd = [
             "convert", str(src),
             "-resize", f"{TILE_W}x>",
-            "-font", "Liberation-Sans",
+            "-font", "Liberation-Sans-Bold",
             "-fill", "white",
             "-undercolor", "#000000aa",
-            "-pointsize", "32",
+            "-pointsize", "28",
             "-gravity", "South",
-            "-annotate", "+0+12", label,
+            "-annotate", "+0+28", line1,
+            "-font", "Liberation-Sans",
+            "-pointsize", "18",
+            "-gravity", "South",
+            "-annotate", "+0+6", line2,
             str(dst),
         ]
-        run_command(cmd, f"tile {label}", check=False)
+        run_command(cmd, f"tile {line1}", check=False)
         return dst if dst.exists() else None
 
     tile_dir = output_dir / "_tiles"
@@ -268,24 +306,26 @@ def create_collage(
 
     all_tiles: List[Path] = []
 
-    # Originals first; label shows frame-number + collision letter, e.g. "2126-a"
+    # Originals first; label: NNNN bold above frame suffix (e.g. "2126" / "a")
     for i, photo in enumerate(source_photos):
         tile = tile_dir / f"orig_{i:03d}.jpg"
         parts = Path(photo.filename).stem.split("-")
-        label = "-".join(parts[2:4]) if len(parts) >= 4 else Path(photo.filename).stem
-        result = labeled_tile(photo.path, label, tile)
+        nnnn = parts[2] if len(parts) >= 3 else Path(photo.filename).stem
+        suffix = parts[3] if len(parts) >= 4 else ""
+        result = labeled_tile_two_line(photo.path, nnnn, suffix, tile)
         if result:
             all_tiles.append(result)
 
-    # Variants; label shows the chain only, e.g. "z25-sel3-fatt-dvi2"
+    # Variants; label: NNNN bold above chain spec, e.g. "2126" / "z25-sel3-fatc-dvi2"
     for variant_name in sorted(all_variants):
         vpath = output_dir / variant_name
         if not vpath.exists():
             continue
         parts = Path(variant_name).stem.split("-")
-        label = "-".join(parts[3:]) if len(parts) > 3 else Path(variant_name).stem
+        nnnn = parts[2] if len(parts) >= 3 else ""
+        chain = "-".join(parts[3:]) if len(parts) > 3 else Path(variant_name).stem
         tile = tile_dir / f"var_{variant_name}"
-        result = labeled_tile(vpath, label, tile)
+        result = labeled_tile_two_line(vpath, nnnn, chain, tile)
         if result:
             all_tiles.append(result)
 
@@ -449,6 +489,7 @@ def _run_chain_specs(
         ok = apply_grading(grading_src, out_path, spec.grading_id, quality, redo=redo)
         if ok:
             _copy_exif(mid_photo.path, out_path)
+            annotate_image(out_path)
             generated.append(out_name)
 
 
@@ -480,6 +521,7 @@ def _run_focus_variants(
         ok = apply_grading(enfuse_tif, out_path, grading_id, quality, redo=redo)
         if ok:
             _copy_exif(mid_photo.path, out_path)
+            annotate_image(out_path)
             generated.append(out_name)
 
 
@@ -512,6 +554,7 @@ def _run_hdr_variants(
             ok2 = apply_grading(enfuse_tif, out_path, grading_id, quality, redo=redo)
             if ok2:
                 _copy_exif(mid_photo.path, out_path)
+                annotate_image(out_path)
                 generated.append(out_name)
 
         # TMO variants
@@ -527,6 +570,7 @@ def _run_hdr_variants(
                 ok4 = apply_grading(tmo_jpg, out_path, grading_id, quality, redo=redo)
                 if ok4:
                     _copy_exif(mid_photo.path, out_path)
+                    annotate_image(out_path)
                     generated.append(out_name)
 
 
