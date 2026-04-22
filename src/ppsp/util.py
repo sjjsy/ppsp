@@ -5,10 +5,49 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import sys
 import time
 from typing import List, Optional, Union
 
 _logger = logging.getLogger(__name__)
+
+# Custom log level for shell command lines — between INFO (20) and WARNING (30).
+CMD: int = 25
+logging.addLevelName(CMD, "CMD")
+
+# ANSI colour codes
+_RESET = "\033[0m"
+_DIM = "\033[2m"
+_CYAN = "\033[36m"
+_YELLOW = "\033[33m"
+_RED = "\033[31m"
+_BOLD_RED = "\033[1;31m"
+
+_LEVEL_COLOR = {
+    logging.DEBUG: _DIM,
+    logging.INFO: "",
+    CMD: _CYAN,
+    logging.WARNING: _YELLOW,
+    logging.ERROR: _RED,
+    logging.CRITICAL: _BOLD_RED,
+}
+
+
+class _ColoredFormatter(logging.Formatter):
+    """Formatter that dims the timestamp+level prefix and colours the message per level."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        ts = self.formatTime(record, self.datefmt)
+        prefix = f"{_DIM}{ts} | {record.levelname:<8} |{_RESET} "
+        color = _LEVEL_COLOR.get(record.levelno, "")
+        msg = record.getMessage()
+        if record.exc_info and not record.exc_text:
+            record.exc_text = self.formatException(record.exc_info)
+        if record.exc_text:
+            msg = msg + "\n" + record.exc_text
+        if record.stack_info:
+            msg = msg + "\n" + self.formatStack(record.stack_info)
+        return f"{prefix}{color}{msg}{_RESET if color else ''}"
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -29,7 +68,10 @@ def setup_logging(verbose: bool = False) -> None:
 
     sh = logging.StreamHandler()
     sh.setLevel(level)
-    sh.setFormatter(logging.Formatter(fmt, datefmt))
+    if sys.stderr.isatty():
+        sh.setFormatter(_ColoredFormatter(datefmt=datefmt))
+    else:
+        sh.setFormatter(logging.Formatter(fmt, datefmt))
 
     root.addHandler(fh)
     root.addHandler(sh)
@@ -50,7 +92,7 @@ def run_command(
     else:
         display = " ".join(str(x) for x in cmd)
 
-    logging.info("Running: %s  # %s", display, desc)
+    logging.log(CMD, "Running: %s  # %s", display, desc)
     start = time.perf_counter()
     rv = None
     try:
@@ -61,7 +103,7 @@ def run_command(
             logging.warning(rv.stderr.strip())
         elapsed = time.perf_counter() - start
         if elapsed > 4:
-            logging.info("  %.1fs taken by the command (%s)  # %s", elapsed, display.split(' ')[0], desc)
+            logging.info("  %.1fs taken by %s", elapsed, desc)
     except subprocess.CalledProcessError as exc:
         logging.error("Failed: %s", exc)
         if check:

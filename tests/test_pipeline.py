@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from ppsp.commands import cmd_rename, cmd_stacks_cull, cmd_stacks_organize
+from ppsp.commands import cmd_cull, cmd_organize, cmd_rename
 
 
 @pytest.mark.needs_test_data
@@ -39,7 +39,7 @@ def test_rename_creates_csv(test_data_dir):
 
 @pytest.mark.needs_test_data
 def test_stacks_organize_creates_dirs(test_data_dir):
-    """cmd_stacks_organize moves files into -stack directories — see README.md § Step 2."""
+    """cmd_organize moves files into -stack directories — see README.md § Step 2."""
     with tempfile.TemporaryDirectory() as tmpdir:
         work = Path(tmpdir)
         for f in test_data_dir.iterdir():
@@ -47,7 +47,7 @@ def test_stacks_organize_creates_dirs(test_data_dir):
                 shutil.copy2(f, work / f.name)
 
         cmd_rename([], work)
-        cmd_stacks_organize([], work)
+        cmd_organize([], work)
 
         stack_dirs = [d for d in work.iterdir() if d.is_dir() and d.name.endswith("-stack")]
         assert len(stack_dirs) >= 1, "No -stack directories were created"
@@ -55,7 +55,7 @@ def test_stacks_organize_creates_dirs(test_data_dir):
 
 @pytest.mark.needs_test_data
 def test_stacks_cull_creates_previews(test_data_dir):
-    """cmd_stacks_cull produces labeled previews in cull/ — see README.md § Step 3."""
+    """cmd_cull produces labeled previews in cull/ — see README.md § Step 3."""
     with tempfile.TemporaryDirectory() as tmpdir:
         work = Path(tmpdir)
         for f in test_data_dir.iterdir():
@@ -63,8 +63,8 @@ def test_stacks_cull_creates_previews(test_data_dir):
                 shutil.copy2(f, work / f.name)
 
         cmd_rename([], work)
-        cmd_stacks_organize([], work)
-        cmd_stacks_cull(work, quality=55)
+        cmd_organize([], work)
+        cmd_cull(work, quality=55)
 
         cull_dir = work / "cull"
         previews = list(cull_dir.glob("*_count*.jpg")) if cull_dir.exists() else []

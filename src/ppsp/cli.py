@@ -8,15 +8,27 @@ from pathlib import Path
 from .commands import (
     cmd_arws_enhance,
     cmd_cleanup,
+    cmd_cull,
+    cmd_discover,
     cmd_generate,
+    cmd_organize,
+    cmd_prune,
     cmd_rename,
-    cmd_stacks_cull,
-    cmd_stacks_organize,
-    cmd_stacks_prune,
-    cmd_stacks_process,
     run_full_workflow,
 )
 from .util import setup_logging
+
+_SIZE_MAP = {
+    "quarter": "z6", "z6": "z6",
+    "half": "z25", "z25": "z25",
+    "full": "z100", "z100": "z100",
+}
+
+
+def _parse_size(size_str: str | None, default: str) -> str:
+    if not size_str:
+        return default
+    return _SIZE_MAP.get(size_str.lower(), default)
 
 
 def _build_parser():
@@ -49,44 +61,41 @@ def _build_parser():
     parser.add_argument("--redo", "-R", action="store_true",
                         help="Regenerate outputs even if they already exist")
 
+    # Options (affect command behaviour)
+    opts = parser.add_argument_group("options")
+    opts.add_argument("--default-model", "-m", default="", metavar="MODEL",
+                      help="Camera model fallback when missing from EXIF (affects -r)")
+    opts.add_argument("--default-lens", "-l", default="", metavar="LENS",
+                      help="Lens ID fallback when missing from EXIF (affects -r)")
+    opts.add_argument("--gap", "-G", type=float, default=30.0, metavar="SECONDS",
+                      help="Time gap (s) that triggers a new stack boundary (affects -o, default: 30)")
+    opts.add_argument("--variants", "-V", default=None, metavar="SPEC",
+                      help="Variant spec for -D and -g: preset level (some/many/lots/all), "
+                           "comma-separated IDs, chain specs with Python regex, CSV/TXT file, "
+                           "or directory (default for -D: some; default for -g: variants/)")
+    opts.add_argument("--size", "-z", default=None, metavar="SIZE",
+                      choices=list(_SIZE_MAP.keys()),
+                      help="Override resolution tier: z6/quarter, z25/half, z100/full "
+                           "(default for -D: z25; default for -g: z100)")
+
     # Command flags
     cmds = parser.add_argument_group("commands")
-
     cmds.add_argument("--rename", "-r", nargs="*", metavar="FILE",
                       help="Normalize filenames and write ppsp_photos.csv")
-    cmds.add_argument("--default-model", "-m", default="", metavar="MODEL",
-                      help="Camera model fallback when missing from EXIF")
-    cmds.add_argument("--default-lens", "-l", default="", metavar="LENS",
-                      help="Lens ID fallback when missing from EXIF")
-
-    cmds.add_argument("--stacks-organize", "-o", nargs="*", metavar="FILE",
+    cmds.add_argument("--organize", "-o", nargs="*", metavar="FILE",
                       help="Group files into per-stack folders")
-    cmds.add_argument("--gap", "-G", type=float, default=30.0, metavar="SECONDS",
-                      help="Time gap (s) that triggers a new stack (default: 30)")
-
-    cmds.add_argument("--stacks-cull", "-c", action="store_true",
+    cmds.add_argument("--cull", "-c", action="store_true",
                       help="Generate labeled culling previews in cull/")
-
-    cmds.add_argument("--stacks-prune", "-P", action="store_true",
-                      help="Remove stack folders with no surviving cull preview")
-
-    cmds.add_argument("--stacks-process", "-p", action="store_true",
-                      help="Variant discovery at reduced resolution (use --stacks to limit scope)")
-    cmds.add_argument("--variants", "-V", default="some", metavar="LEVEL_OR_LIST",
-                      help="Preset level (some/many/all) or comma-separated IDs (default: some)")
-    cmds.add_argument("--fast", "-f", action="store_true",
-                      help="Use z6 resolution instead of z25 for variant discovery")
-
-    cmds.add_argument("--generate", "-g", nargs="+", metavar="TARGET",
-                      help="Generate variants from chain filenames, CSV, TXT, or chain specs")
-    cmds.add_argument("--half", action="store_true",
-                      help="Generate at z25 (half-linear resolution) instead of z100 (full)")
-
+    cmds.add_argument("--prune", "-P", action="store_true",
+                      help="Remove stack folders with no surviving cull preview (destructive)")
+    cmds.add_argument("--discover", "-D", action="store_true",
+                      help="Generate variants with annotations for discovery (see options -z, -s and -V)")
+    cmds.add_argument("--generate", "-g", action="store_true",
+                      help="Generate variants for publishing (see options -z, -s and -V)")
     cmds.add_argument("--arws-enhance", "-e", nargs="*", metavar="FILE",
                       help="Convert ARW files to enhanced JPGs")
-
     cmds.add_argument("--cleanup", "-C", action="store_true",
-                      help="Remove intermediate TIFFs from stack folders")
+                      help="Remove z-tier discovery folders and variants/ (destructive)")
 
     return parser
 
@@ -108,33 +117,37 @@ def main(argv=None) -> None:
                    default_lens=args.default_lens,
                    redo=args.redo)
 
-    elif args.stacks_organize is not None:
-        files = [Path(f) for f in args.stacks_organize] if args.stacks_organize else []
-        cmd_stacks_organize(files, source, gap=args.gap, redo=args.redo)
+    elif args.organize is not None:
+        files = [Path(f) for f in args.organize] if args.organize else []
+        cmd_organize(files, source, gap=args.gap, redo=args.redo)
 
-    elif args.stacks_cull:
-        cmd_stacks_cull(source, quality=args.quality, redo=args.redo)
+    elif args.cull:
+        cmd_cull(source, quality=args.quality, redo=args.redo)
 
-    elif args.stacks_prune:
-        cmd_stacks_prune(source)
+    elif args.prune:
+        cmd_prune(source)
 
-    elif args.stacks_process:
-        cmd_stacks_process(
+    elif args.discover:
+        z_tier = _parse_size(args.size, "z25")
+        variants = args.variants if args.variants is not None else "some"
+        cmd_discover(
             source,
-            variants_arg=args.variants,
-            fast=args.fast,
+            variants_arg=variants,
+            z_tier=z_tier,
             quality=args.quality,
             redo=args.redo,
             stacks_specs=stacks_specs,
         )
 
     elif args.generate:
+        z_tier = _parse_size(args.size, "z100")
+        variants = args.variants if args.variants is not None else "variants/"
         cmd_generate(
-            list(args.generate),
             source,
+            variants_arg=variants,
+            z_tier=z_tier,
             quality=95,
             redo=args.redo,
-            half=args.half,
             stacks_specs=stacks_specs,
         )
 
@@ -156,9 +169,9 @@ def main(argv=None) -> None:
             redo=args.redo,
             default_model=args.default_model,
             default_lens=args.default_lens,
-            variants_arg=args.variants,
-            fast=args.fast,
-            half=args.half,
+            variants_arg=args.variants if args.variants is not None else "some",
+            discover_z_tier=_parse_size(args.size, "z25"),
+            generate_z_tier=_parse_size(args.size, "z100"),
         )
 
 

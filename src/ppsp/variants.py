@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import re
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 if TYPE_CHECKING:
@@ -111,7 +113,7 @@ TMO_VARIANTS: Dict[str, List[str]] = {
     "fatd": ["--tmo", "fattal"],                                                 # Luminance defaults
     "fatn": ["--tmo", "fattal",                                                  # Tamed / natural; desaturated, moderately lifted
              "--tmoFatColor", "0.8",
-             "--gamma", "1.3",
+             "--gamma", "1.1",
              "--postgamma", "1.1"],
     "fatc": ["--tmo", "fattal",                                                  # Creative / dramatic; full gradient pop, subtle lift
              "--tmoFatAlpha", "0.8",
@@ -269,3 +271,77 @@ def expand_variants(level_or_list: str) -> Tuple[List[str], List[str], List[str]
     tmo_ids = [i for i in ids if i in TMO_VARIANTS]
     grading_ids = [i for i in ids if i in GRADING_PRESETS]
     return enfuse_ids, tmo_ids, grading_ids
+
+
+# ---------------------------------------------------------------------------
+# Chain pattern expansion (regex / brace syntax) — see README.md § Pattern expansion
+# ---------------------------------------------------------------------------
+
+
+def _all_valid_variant_chains() -> List[str]:
+    """Enumerate every valid variant chain string (enfuse + optional TMO + grading, no z-tier)."""
+    chains: List[str] = []
+    enfuse_ids = list(ENFUSE_VARIANTS.keys()) + ["focu"]
+    tmo_ids = list(TMO_VARIANTS.keys())
+    grading_ids = list(GRADING_PRESETS.keys())
+    for e in enfuse_ids:
+        for g in grading_ids:
+            chains.append(f"{e}-{g}")
+        for t in tmo_ids:
+            for g in grading_ids:
+                chains.append(f"{e}-{t}-{g}")
+    return chains
+
+
+def expand_variant_chain_pattern(pattern: str) -> List[str]:
+    """Match a Python regex pattern against every valid variant chain (no z-tier component).
+
+    Counterpart to ``expand_chain_pattern`` for use in the --discover path where chain specs
+    are expressed without a z-tier prefix (e.g. ``sel4-m.*(p|n)-dvi1``).
+    """
+    try:
+        results = [s for s in _all_valid_variant_chains() if re.fullmatch(pattern, s)]
+    except re.error as exc:
+        logging.warning("Invalid variant chain pattern '%s': %s", pattern, exc)
+        return []
+    if not results:
+        logging.warning("Variant chain pattern '%s' matched no valid chains", pattern)
+    return results
+
+
+def _all_valid_chain_specs() -> List[str]:
+    """Enumerate every valid full chain spec string (z-tier + enfuse + optional TMO + grading)."""
+    specs: List[str] = []
+    z_tiers = ["z100", "z25", "z6"]
+    for z in z_tiers:
+        for s in _all_valid_variant_chains():
+            specs.append(f"{z}-{s}")
+    return specs
+
+
+def expand_chain_pattern(pattern: str) -> List[str]:
+    """Match a Python regex pattern against every valid full chain spec string.
+
+    The pattern is passed directly to ``re.fullmatch`` — use standard Python ``re``
+    syntax.  Returns matching specs in canonical table order.
+    Logs a warning and returns [] if nothing matches or the pattern is invalid.
+
+    Examples::
+
+        expand_chain_pattern("(z25|z100)-sel4-m06p-dvi1")
+        # → ["z25-sel4-m06p-dvi1", "z100-sel4-m06p-dvi1"]
+
+        expand_chain_pattern("z6-sel4-.*-dvi1")
+        # → all z6/sel4/<any-tmo>/dvi1 specs  (16 entries, one per TMO variant)
+
+        expand_chain_pattern("(z25|z100)-sel4-m.*(p|n)-dvi1")
+        # → (z25|z100) × sel4 × {m06p,m08n} × dvi1  (4 entries)
+    """
+    try:
+        results = [s for s in _all_valid_chain_specs() if re.fullmatch(pattern, s)]
+    except re.error as exc:
+        logging.warning("Invalid chain pattern '%s': %s", pattern, exc)
+        return []
+    if not results:
+        logging.warning("Chain pattern '%s' matched no valid chain specs", pattern)
+    return results

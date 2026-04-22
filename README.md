@@ -1,6 +1,8 @@
 # ppsp — Post Photoshoot Processing
 
-A CLI tool for real-estate and architectural photographers who shoot 500+ bracketed images per session and publish 10–20 polished finals. `ppsp` automates the tedious mechanical work — renaming, organizing, stacking, fusing, grading — while keeping you in control of every creative decision.
+A CLI tool for real-estate and architectural photographers who shoot 200+ images per session and publish 10–20 polished finals.
+`ppsp` is purpose-built around **stack processing**: every image is treated as part of an HDR exposure bracket or focus stack, and the tool is designed to handle dozens of stacks in a single automated run.
+It automates the tedious mechanical work — renaming, organizing, stacking/aligning, fusing, tone-mapping, grading, resizing — while keeping you as the creative director.
 
 This README explains how ppsp can be used, but complementary documents are available:
 * **[GUIDE.md](GUIDE.md)** provides a deep-dive into the underlying theory and tools behind ppsp and its built-in presets.
@@ -8,7 +10,7 @@ This README explains how ppsp can be used, but complementary documents are avail
 
 ## Motivation
 
-A typical architectural session produces hundreds of HDR brackets and focus stacks.
+A typical architectural session produces hundreds of RAW images belonging to dozens of HDR and focus stacks that require a lot of processing steps before results can be shared.
 The optimum tone-mapping and color-grading parameters are impossible to know upfront, so you end up generating dozens of variants per image.
 `ppsp` speeds through that discovery phase at reduced resolution, presents the candidates in labeled collages, then generates only the keepers at full quality — with a single command.
 
@@ -66,31 +68,32 @@ Running `ppsp` without a command flag walks you through all steps interactively.
 | Step | Command | Short | Description |
 |---|---|---|---|
 | 1 | `--rename [FILES...]` | `-r` | Normalize filenames + write `ppsp_photos.csv` |
-| 2 | `--stacks-organize [FILES...]` | `-o` | Group files into per-stack folders |
-| 3 | `--stacks-cull` | `-c` | Generate labeled culling previews in `cull/` |
-| 4 | `--stacks-prune` | `-P` | Remove stack folders with no surviving preview |
-| 5 | `--stacks-process` | `-p` | Variant discovery at reduced resolution + collage (use --stacks to limit scope) |
-| 6 | *(manual)* | | Edit `ppsp_generate.csv` — mark variants with `x` |
-| 7 | `--generate FOLDER/FILES/CSV/TXT` | `-g` | Generate variants from chain specifications |
+| 2 | `--organize [FILES...]` | `-o` | Group files into per-stack folders |
+| 3 | `--cull` | `-c` | Generate labeled culling previews in `cull/` |
+| 4 | `--prune` | `-P` | Remove stack folders with no surviving preview |
+| 5 | `--discover` | `-D` | Generate variants with annotations for discovery |
+| 6 | *(manual)* | | Browse `variants/`, delete unwanted files or mark CSV |
+| 7 | `--generate` | `-g` | Generate variants for publishing |
+| — | `--cleanup` | `-C` | Remove z-tier discovery folders and `variants/` |
 | — | `--arws-enhance [FILES...]` | `-e` | Convert ARW files to enhanced JPGs |
-| — | `--cleanup` | `-C` | Remove intermediate TIFFs from stack folders |
 
-**Generate options** — apply to `--generate`:
+**All options** — flags that tune command behaviour:
 
-| Flag | Short | Default | Description |
-|---|---|---|---|
-| `--half` | | off | Generate at z25 instead of z100 — reuses discovery intermediates, much faster |
+| Flag | Short | Default | Affects | Description |
+|---|---|---|---|---|
+| `--verbose` | `-v` | off | all | Debug-level logging |
+| `--batch` | `-b` | off | full workflow | Skip all interactive prompts |
+| `--dir DIR` | `-d` | `.` | all | Directory containing shoot images |
+| `--default-model MODEL` | `-m` | — | `-r` | Camera model fallback when missing from EXIF |
+| `--default-lens LENS` | `-l` | — | `-r` | Lens ID fallback when missing from EXIF |
+| `--gap SECONDS` | `-G` | `30` | `-o` | Time gap (s) between shots that triggers a new stack |
+| `--stacks SPEC...` | `-s` | — | `-D`, `-g` | Limit scope to specific stacks: full name, 4-digit frame number, or `NNNN-NNNN` range |
+| `--variants SPEC` | `-V` | see note | `-D`, `-g` | What to discover or generate — see [§ --variants (-V)](#--variants--v); default is `some` for `-D` and `variants/` for `-g` |
+| `--size SIZE` | `-z` | see note | `-D`, `-g` | Resolution tier: `z6`/`quarter`, `z25`/`half`, `z100`/`full` — default is `z25` for `-D` and `z100` for `-g` |
+| `--quality INT` | `-q` | `80` | all | JPEG quality for internal conversions |
+| `--redo` | `-R` | off | all | Regenerate outputs even if they already exist |
 
-**Global options** — apply to all commands:
-
-| Flag | Short | Default | Description |
-|---|---|---|---|
-| `--dir DIR` | `-d` | `.` | Directory containing shoot images |
-| `--stacks SPEC...` | `-s` | — | Limit scope to specific stacks: full stack name, 4-digit frame number, or `NNNN-NNNN` range |
-| `--quality INT` | `-q` | `80` | JPEG quality for all internal conversions |
-| `--batch` | `-b` | off | Skip all interactive prompts |
-| `--verbose` | `-v` | off | Debug-level logging |
-| `--redo` | `-R` | off | Regenerate outputs even if they already exist |
+> **Warning:** Three of the uppercase flags are destructive: `-P` deletes stack directories, `-C` removes z-tier and `variants/` folders, `-R` forces regeneration of existing outputs.
 
 ### Step 1 — Rename and catalogue (`--rename` / `-r`)
 
@@ -149,7 +152,7 @@ Stack folders use the first image's base name with a `-stack` suffix: `202604160
 
 #### ppsp_photos.csv
 
-Written by `--rename`. The `StackName` column is added and populated by `--stacks-organize`.
+Written by `--rename`. The `StackName` column is added and populated by `--organize`.
 
 | Column | Description |
 |---|---|
@@ -169,21 +172,15 @@ Written by `--rename`. The `StackName` column is added and populated by `--stack
 | `WhiteBalance` | White balance setting |
 | `StackName` | Stack folder this file belongs to (set by Step 2) |
 
-### Step 2 — Organize stacks (`--stacks-organize` / `-o`)
+### Step 2 — Organize stacks (`--organize` / `-o`)
 
 Group renamed files into per-stack directories named after the first image in the group, and populate the `StackName` column in `ppsp_photos.csv`.
 
 ```bash
-ppsp --stacks-organize                                                 # all renamed files
+ppsp --organize                                                        # all renamed files
 ppsp -o 20260416095559-m4azzz-2126-a.arw 20260416095559-m4azzz-2127-a.arw
-ppsp --stacks-organize --gap 60                                        # longer gap threshold
+ppsp --organize --gap 60                                               # longer gap threshold
 ```
-
-#### Options
-
-| Flag | Short | Default | Description |
-|---|---|---|---|
-| `--gap SECONDS` | `-G` | `30` | Time gap (s) between consecutive shots that triggers a new stack |
 
 #### Stack detection
 
@@ -199,12 +196,12 @@ Photos are sorted by timestamp. A new stack begins when any of the following sig
 
 Any single signal is sufficient to start a new stack. After grouping, each stack's type is determined by its exposure-compensation spread: more than one distinct rounded EV value → **HDR stack** (e.g. 0, −2, +2); all at the same EV → **focus stack**.
 
-### Step 3 — Generate culling previews (`--stacks-cull` / `-c`)
+### Step 3 — Generate culling previews (`--cull` / `-c`)
 
 Produce one labeled JPG preview per stack in `cull/`, named `<stack-name>_count<N>.jpg`.
 
 ```bash
-ppsp --stacks-cull
+ppsp --cull
 ```
 
 The representative image is chosen in this priority order: a JPG at EV 0 → any JPG → any file at EV 0 (ARW-derived) → middle image of the stack.
@@ -215,76 +212,44 @@ Review with any image viewer before proceeding:
 eog cull/ &
 ```
 
-### Step 4 — Manual culling and prune (`--stacks-prune` / `-P`)
+### Step 4 — Manual culling and prune (`--prune` / `-P`)
 
-Delete the preview files from `cull/` for any stacks you do not want to process. Stacks with no surviving preview are ignored by all subsequent steps. Then run:
-
-```bash
-ppsp --stacks-prune
-```
-
-This removes the stack directories that no longer have a corresponding preview in `cull/`.
-
-### Step 5 — Variant discovery (`--stacks-process` / `-p`)
-
-For each surviving stack, convert RAW files at reduced resolution, align the frames with `align_image_stack`, generate the requested variants, annotate them with filenames (as with the culling previews) and assemble a collage.
+Delete the preview files from `cull/` for any stacks you do not want to keep.
+Then run:
 
 ```bash
-ppsp --stacks-process                                                  # z25, 'some' variants
-ppsp -p --stacks 2126                                                   # one specific stack
-ppsp --stacks 2126-2200 -p --fast --variants many --quality 70         # z6, stacks 2126-2200
-ppsp -p --variants natu,sel3,fatc,m06p                                  # custom ID selection
-ppsp -p --variants sel4-fatc-dvi1,sel4-fatc-neut,sel4-m06p-dvi1        # exact chains
+ppsp --prune
 ```
 
-#### Variant discovery options
+This deletes the stack directories that no longer have a corresponding preview in `cull/` and thus completely eliminates them from further processing.
 
-| Flag | Short | Default | Description |
-|---|---|---|---|
-| `--variants SPEC` | `-V` | `some` | What to generate — see the three modes below |
-| `--fast` | `-f` | off | Use z6 resolution instead of z25 |
+**WARNING**: If you have no backups, you will lose the culled images!
 
-#### Three ways to specify variants
+### Step 5 — Variant discovery (`--discover` / `-D`)
 
-**Mode 1 — Preset level** (`some` / `many` / `lots` / `all`): runs the cross-product of all enfuse IDs × all TMO IDs × all grading presets for the chosen level.
+For each surviving stack, convert RAW files at reduced resolution, align the frames, generate the requested variants, annotate each with its full filename, and assemble a collage. Results land in a z-tier subfolder inside each stack directory and are hard-linked into `variants/` for easy browsing.
 
 ```bash
-ppsp -p --variants some    # 1 enfuse × 2 TMO × 2 gradings (+ enfuse-only)
-ppsp -p --variants many    # 3 enfuse × 2 TMO × 2 gradings (+ enfuse-only)
-ppsp -p --variants lots    # 5 enfuse × 6 TMO × 5 gradings (+ enfuse-only)
-ppsp -p --variants all     # all enfuse × all TMO × all gradings
+ppsp --discover                                                        # z25, 'some' variants
+ppsp -D --stacks 2126                                                  # one specific stack
+ppsp --stacks 2126-2200 -D -z z6 -V many --quality 70                  # z6, stacks 2126-2200
+ppsp -D -V natu,sel3,fatc,m06p                                         # custom ID selection
+ppsp -D -V sel4-fatc-dvi1,sel4-fatc-neut,sel4-m06p-dvi1                # exact chains
 ```
 
-**Mode 2 — Comma-separated IDs** (no `-` in any token): selects which enfuse, TMO, and grading IDs to include, then runs the cross-product. If no grading IDs are given, all 6 presets are used; otherwise only the listed ones.
-
-```bash
-ppsp -p --variants natu,sel3,fatc,m06p
-# → enfuse: [natu, sel3]  TMO: [fatc, m06p]  gradings: all 6 → 24 variants
-
-ppsp -p --variants sel3,fatc,m06p,dvi1
-# → enfuse: [sel3]  TMO: [fatc, m06p]  gradings: [dvi1] → 2 variants
-```
-
-**Mode 3 — Exact chain specs** (any token contains `-`): generates precisely those chains, one output file per spec. The format per spec is `{enfuse-id}-{grading-id}` or `{enfuse-id}-{tmo-id}-{grading-id}`.
-
-```bash
-ppsp -p --variants sel4-fatc-dvi1,sel4-fatc-neut,sel4-m06p-dvi1
-# → exactly 3 variants per stack, with exactly those processing chains
-```
-
-This mode is useful when you already know which chains you want — for example, after a previous discovery run — and want to skip the full cross-product.
+Use `-V` to specify which variants to run and `-z` to override the resolution tier — see [§ --variants (-V)](#--variants--v).
 
 #### Resolution tiers
 
-The z-tier label is encoded in every output filename. `--generate` uses whatever z-tier is specified in the target filename.
+The z-tier label is encoded in every output filename. For `-g`, the tier is determined by each filename's embedded z-tier (directory/CSV/TXT inputs) or by `-z` (chain specs / presets; default: `z100`).
 
 | Label | Pixel count | How produced |
 |---|---|---|
-| `z100` | 100 % | `dcraw` without `-h`; used by `--generate` for full-quality output |
-| `z25` | ≈25 % | `dcraw -h`; default for discovery |
-| `z6` | ≈6.25 % | `dcraw -h` then `mogrify -resize 50%`; selected with `--fast` |
+| `z100` | 100 % | `dcraw` without `-h`; default for `-g` |
+| `z25` | ≈25 % | `dcraw -h`; default for `-D` |
+| `z6` | ≈6.25 % | `dcraw -h` then `mogrify -resize 50%`; selected with `-z z6` |
 
-#### Preset variant levels (Mode 1)
+#### Preset variant levels
 
 Each preset also includes a default set of grading presets. Variants = (enfuse × gradings) + (enfuse × TMO × gradings).
 
@@ -333,12 +298,23 @@ For each operator, a `d`-suffix "defaults" variant is listed first (no extra fla
 | `r02d` | Reinhard '02 | Luminance defaults | — |
 | `r02p` | Reinhard '02 | Zone-system photographic tone curve; lowest artefact risk, brightened | `--tmoR02Key 0.18 --tmoR02Phi 1.0 --postgamma 1.1` |
 | `fatd` | Fattal | Luminance defaults | — |
-| `fatn` | Fattal | Tamed / natural; gradient pop with desaturated output and moderate brightness lift | `--tmoFatColor 0.8 --gamma 1.3 --postgamma 1.1` |
+| `fatn` | Fattal | Tamed / natural; gradient pop with desaturated output and moderate brightness lift | `--tmoFatColor 0.8 --gamma 1.1 --postgamma 1.1` |
 | `fatc` | Fattal | Creative / dramatic; full local contrast on exteriors and high-contrast architecture | `--tmoFatAlpha 0.8 --tmoFatBeta 0.9 --postgamma 1.05` |
 | `ferr` | Ferradans | Luminance defaults | — |
 | `ferw` | Ferwerda | Luminance defaults | — |
 | `kimd` | KimKautz | Luminance defaults | — |
 | `kimn` | KimKautz | Clean magazine look; no halos, no colour shift — luxury interiors and white walls | `--tmoKimKautzC1 0.8 --tmoKimKautzC2 1.2 --postgamma 1.1` |
+
+Note: The author compared the results with these tone-mapping presets with some sample indoor photos taken with the Sony a7R IV, and the following seemed to provide the best results by image content:
+
+| Image content | Good TMO presets |
+|---------------|------------------|
+| living room with a somewhat distant large bright window with a little sunshine indoors | fatd, kimd, m06p, r02p |
+| dining room with somewhat distant bright window | fatd, kimd, m06p, m08c, r02p |
+| white bathroom with small window in the evening | fatn, kimn, m06p, r02p |
+| bedroom with a large window in shadow | fatd, kimd, r02p |
+| any of the above | r02p |
+| most of the above | fatd, kimd, m06p |
 
 #### Color-grading presets
 
@@ -362,16 +338,16 @@ shoot/
 ├── 20260416095559-m4azzz-2126-stack/
 │   ├── 20260416095559-m4azzz-2126-a.arw          ← per-frame source files stay in root
 │   ├── 20260416095559-m4azzz-2126-a-z25.tif      ← per-frame raw-converted TIF stays in root
-│   └── z25/                                       ← all combined outputs here
-│       ├── 20260416095559-m4azzz-2126-z25-aligned0000.tif   ← aligned (removed by --cleanup)
+│   └── z25/                                       ← discovery outputs; removed by -C
+│       ├── 20260416095559-m4azzz-2126-z25-aligned0000.tif
 │       ├── 20260416095559-m4azzz-2126-z25-aligned0001.tif
-│       ├── 20260416095559-m4azzz-2126-z25-sel4.tif          ← enfuse temp (removed by --cleanup)
-│       ├── 20260416095559-m4azzz-2126-z25-sel4-fatc.jpg     ← TMO temp (removed by --cleanup)
+│       ├── 20260416095559-m4azzz-2126-z25-sel4.tif
+│       ├── 20260416095559-m4azzz-2126-z25-sel4-fatc.jpg
 │       ├── 20260416095559-m4azzz-2126-z25-sel3-fatc-dvi1.jpg
 │       ├── 20260416095559-m4azzz-2126-z25-sel4-m06p-neut.jpg
 │       ├── ...
 │       └── 20260416095559-m4azzz-2126-stack-collage.jpg
-└── variants/                                      ← hard links to variants + collages
+└── variants/                                      ← hard links to variants + collages; removed by -C
     ├── 20260416095559-m4azzz-2126-z25-sel3-fatc-dvi1.jpg
     ├── 20260416095559-m4azzz-2126-stack-collage.jpg
     └── ...
@@ -379,7 +355,7 @@ shoot/
 
 #### Collage
 
-After all variants for a stack are produced, a single `<stack-name>-collage.jpg` is written into the z-tier subfolder alongside the variants. All tiles (originals first, then variants) are arranged in a grid whose dimensions are chosen to approximate a 16:9 aspect ratio. Each tile is 640 px wide (preserving the source aspect ratio). Each tile is annotated at the bottom center: the image number (NNNN) in large bold at the top of the label, and the chain spec (`z25-sel3-fatc-dvi2`) in smaller text below. Individual variant JPEGs are also annotated the same way (NNNN bold + chain spec), so you can identify them from any image viewer without relying on filename display.
+After all variants for a stack are produced, a single `<stack-name>-collage.jpg` is written into the z-tier subfolder alongside the variants. All tiles (originals first, then variants) are arranged in a grid whose dimensions are chosen to approximate a 16:9 aspect ratio. Each tile is 640 px wide (preserving the source aspect ratio). Each tile is annotated at the bottom center with its full filename stem in large bold. Individual variant JPEGs are also annotated the same way, so you can identify them from any image viewer without relying on filename display.
 
 ### Step 6 — Variant selection
 
@@ -390,11 +366,13 @@ After discovery, browse the `variants/` folder with any image viewer (e.g. `eog 
 Simply delete the variants you do **not** want from `variants/`. Because these are hard links, the originals in the stack's z-tier subfolder are unaffected — you are only removing entries from the selection set.
 
 ```bash
-# Delete unwanted variants, e.g.:
+# Delete unwanted variants, for example:
+eog variants/ # browse through them and press delete on the unwanted
+# or:
 rm variants/*-natu-*.jpg
 rm variants/*-collage.jpg
 # Then generate what remains:
-ppsp --generate variants/
+ppsp -g
 ```
 
 #### Method B — CSV-based
@@ -413,68 +391,101 @@ Filename	Generate
 ```
 
 ```bash
-ppsp --generate ppsp_generate.csv
+ppsp -g -V ppsp_generate.csv
 ```
 
 ### Step 7 — Generate variants (`--generate` / `-g`)
 
-Generates outputs from the surviving selection. The z-tier is read from each target's chain and executed in sequence, skipping any intermediate that already exists (unless `--redo`). Outputs land in `out_full/` and `out_web/`.
+Generates selected variants at full quality for publishing. Outputs land in `out_full/` (quality 95) and `out_web/` (max 2048 px, quality 80, stripped metadata). Any variant already present in `out_full/` is skipped automatically; pass `--redo` to force regeneration. The `-s` flag limits generation to matching stacks.
 
-The `--stacks` global flag limits generation to matching stacks (see Global options).
-
-```bash
-ppsp --generate variants/                                              # Method A: folder → z100
-ppsp --generate variants/ --half                                        # Method A: folder → z25
-ppsp --generate ppsp_generate.csv                                      # Method B: CSV
-ppsp -g my_selection.txt                                               # one filename per line
-ppsp --generate 20260416095559-m4azzz-2126-z100-sel3-fatc-dvi2.jpg    # direct filename
-ppsp --generate z25-sel4-m06p-dvi1                                     # chain spec, all stacks
-ppsp --generate variants/ --redo                                        # force regeneration
-```
-
-`out_full/` holds the generated JPEG at quality 95. `out_web/` holds a web-ready copy (max 2048 px, quality 80, `-strip`).
-
-#### Chain spec syntax
-
-Pass one or more z-tier chain specs directly as arguments. Each spec is expanded to all stacks under `--dir` — no need to list individual files:
+Use `-V` to specify the source and `-z` to override the resolution tier — see [§ --variants (-V)](#--variants--v). The default is `-V variants/` (the folder that `-D` populates).
 
 ```bash
-ppsp --generate z25-sel4-m06p-dvi1                      # one chain, all stacks, at z25
-ppsp --generate z100-sel4-m06p-dvi1                     # same chain at full resolution
-ppsp --generate z25-sel4-m06p-dvi1 z100-natu-neut       # two chains across all stacks
-ppsp --generate z25-focu-neut                           # focus stack chain, all stacks
+ppsp --generate                                                        # default: from variants/
+ppsp -g -V ppsp_generate.csv                                           # from CSV
+ppsp -g -V my_selection.txt                                            # from TXT file
+ppsp -g -V sel4-m06p-dvi1                                              # chain spec, all stacks
+ppsp -g -V "(z25|z100)-sel4-m.*[pn]-dvi1"                              # regex, all stacks
+ppsp --generate --redo                                                 # force regeneration
+ppsp -g --stacks 2126-2200                                             # limit to stacks 2126-2200
 ```
 
-Form: `{z-tier}-{enfuse-id}-{grading-id}` or `{z-tier}-{enfuse-id}-{tmo-id}-{grading-id}`. All component IDs must be valid (see tables above). The embedded z-tier is used directly — `--half` is not needed.
+When reading from a directory, CSV, or TXT file, the z-tier is taken from each filename and overridden by `-z` if specified. When using chain specs or presets, `-z` determines the tier (default: `z100`).
 
-#### `--half` — z25 for directory scans
+### --variants (`-V`)
 
-When scanning a directory (e.g. `variants/`), filenames are converted to z100 by default. Pass `--half` to keep them at z25 and reuse all discovery-phase intermediates:
+The `-V` option specifies what variants to run in `-D` (discovery) and `-g` (generate). It is evaluated in this order:
+
+**File path — directory**: scans for `*.jpg` files; each filename's embedded z-tier is used as-is and overridden by `-z` if specified. Default for `-g` is `variants/`.
 
 ```bash
-ppsp --stacks-process --fast        # z6 discovery; z25 TIFFs also saved as side-effect
-ppsp --generate variants/ --half    # grade to z25 at quality 95 — reuses all intermediates
+ppsp -g                            # reads variants/ (default)
+ppsp -g -V /path/to/my_folder
 ```
 
-#### CSV and TXT — z-tier from each filename
-
-When reading from a CSV or TXT file, filenames are used exactly as written. The z-tier in each filename drives which intermediates are reused, so a single CSV can mix tiers:
-
-```
-Filename	Generate
-20260416095559-m4azzz-2126-z25-sel4-m06p-dvi1.jpg	x
-20260416095559-m4azzz-2127-z100-natu-neut.jpg	x
-```
+**File path — CSV** (`.csv`): reads rows where `Generate == x`; z-tier from each filename, overridden by `-z`.
 
 ```bash
-ppsp --generate my_selection.csv    # no --half needed; z-tier from each filename
+ppsp -g -V ppsp_generate.csv
 ```
+
+**File path — TXT** (`.txt`): one target filename per line; z-tier as above.
+
+```bash
+ppsp -g -V my_selection.txt
+```
+
+**Mode 1 — Preset level** (`some` / `many` / `lots` / `all`): cross-product of the level's enfuse × TMO × grading IDs. Default for `-D` is `some`.
+
+```bash
+ppsp -D -V some    # 1 enfuse × 2 TMO × 2 gradings (+ enfuse-only)
+ppsp -D -V many    # 3 enfuse × 2 TMO × 2 gradings
+ppsp -D -V lots    # 5 enfuse × 6 TMO × 5 gradings
+ppsp -D -V all     # all enfuse × all TMO × all gradings
+```
+
+**Mode 2 — Comma-separated IDs** (no `-` in any token): selects enfuse, TMO, and grading IDs and runs the cross-product. If no grading IDs are given, all six presets are used.
+
+```bash
+ppsp -D -V natu,sel3,fatc,m06p
+# → enfuse: [natu, sel3]  TMO: [fatc, m06p]  gradings: all 6
+
+ppsp -D -V sel3,fatc,m06p,dvi1
+# → enfuse: [sel3]  TMO: [fatc, m06p]  gradings: [dvi1]
+```
+
+**Mode 3 — Chain specs with Python regex** (any token contains `-`): for `-D` each token is `{enfuse-id}-{grading-id}` or `{enfuse-id}-{tmo-id}-{grading-id}` (no z-tier);
+for `-g` a z-tier prefix is optional and overridden by `-z`.
+Standard Python `re` syntax is used for pattern matching against all valid chain combinations.
+
+```bash
+# Exact chains for -D:
+ppsp -D -V sel4-fatc-dvi1,sel4-fatc-neut,sel4-m06p-dvi1
+
+# Chain spec for -g:
+ppsp -g -V z100-sel4-m06p-dvi1
+
+# Alternation — same chain at two z-tiers:
+ppsp -g -V "(z25|z100)-sel4-m06p-dvi1"
+
+# Wildcard — all TMO variants for a fixed tier, enfuse ID, and grading:
+ppsp -g -V "z6-sel4-.*-dvi1"
+# → z6-sel4-m08d-dvi1, z6-sel4-m08n-dvi1, … (one per TMO variant)
+
+# Combined — two z-tiers, only TMO IDs ending in p or n:
+ppsp -g -V "(z25|z100)-sel4-m.*[pn]-dvi1"
+# → z25-sel4-m06p-dvi1, z25-sel4-m08n-dvi1, z100-sel4-m06p-dvi1, z100-sel4-m08n-dvi1
+```
+
+Quote the pattern to prevent shell glob expansion. Patterns that match nothing emit a warning and produce no output.
 
 ## Additional commands
 
 `--arws-enhance [FILES...]` (`-e`) converts individual ARW files to high-quality enhanced JPGs without stacking or grading. Defaults to all ARWs under `--dir`.
 
-`--cleanup` (`-C`) removes intermediate files from all z-tier subfolders under `--dir`: all TIFFs (aligned frames + enfuse temps) and TMO temp JPGs (identified by having a TMO id as their last chain component rather than a grading id). Final variant JPGs and collages are preserved. Run this after generation is complete and you no longer need to regenerate variants.
+`--cleanup` (`-C`) removes all z-tier subfolders (`z6/`, `z25/`, `z100/`) inside every stack directory, and the flat `variants/` folder at the shoot root.
+Original ARW and JPG source files, and the `out_full/`/`out_web/` export folders, are untouched.
+Run this after generation is complete and you no longer need to re-run discovery.
 
 ## Output structure
 
@@ -485,16 +496,16 @@ shoot/
 ├── ppsp.log                              # Full run log
 ├── cull/                                 # One labeled preview per stack
 │   └── 20260416095559-m4azzz-2126-stack_count5.jpg
-├── variants/                             # Hard links to all discovery variants + collages
+├── variants/                             # Hard links to all discovery variants + collages; removed by -C
 │   ├── 20260416095559-m4azzz-2126-z25-sel3-fatc-dvi1.jpg
 │   └── 20260416095559-m4azzz-2126-stack-collage.jpg
 ├── 20260416095559-m4azzz-2126-stack/     # One folder per stack
 │   ├── 20260416095559-m4azzz-2126-a.arw  # Per-frame source files stay in root
 │   ├── 20260416095559-m4azzz-2126-a-z25.tif  # Per-frame raw-converted TIF
-│   └── z25/                             # All combined outputs: intermediates + variants + collage
-│       ├── *-z25-aligned0000.tif         # Aligned TIFs (removed by --cleanup)
-│       ├── *-z25-sel4.tif               # Enfuse temp TIF (removed by --cleanup)
-│       ├── *-z25-sel4-fatc.jpg          # TMO temp JPG (removed by --cleanup)
+│   └── z25/                             # Discovery outputs: intermediates + variants + collage; removed by -C
+│       ├── *-z25-aligned0000.tif
+│       ├── *-z25-sel4.tif
+│       ├── *-z25-sel4-fatc.jpg
 │       ├── 20260416095559-m4azzz-2126-z25-sel3-fatc-dvi1.jpg
 │       └── 20260416095559-m4azzz-2126-stack-collage.jpg
 ├── out_full/                             # Full-quality finals (from --generate)
@@ -502,6 +513,15 @@ shoot/
 └── out_web/                              # Web-ready finals
     └── 20260416095559-m4azzz-2126-z100-sel3-fatc-dvi2-web.jpg
 ```
+
+## Usage example (actually used on 2026-04-22)
+
+ppsp --rename -l L15
+ppsp --organize
+ppsp --cull
+ppsp --prune
+ppsp --discover -V 'sel4,sel5,r02p,fatd,kimd,m06p,deno,dvi1,dvi2' -z z6
+ppsp --generate -z z25
 
 ## Development
 

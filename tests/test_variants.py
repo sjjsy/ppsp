@@ -9,6 +9,7 @@ from ppsp.variants import (
     GRADING_PRESETS,
     TMO_VARIANTS,
     VARIANT_LEVELS,
+    expand_chain_pattern,
     expand_variants,
     parse_full_chain_spec,
     parse_variant_chain,
@@ -228,3 +229,67 @@ def test_parse_full_chain_spec_invalid_chain():
 
 def test_parse_full_chain_spec_too_short():
     assert parse_full_chain_spec("z25-sel4") is None
+
+
+# ---------------------------------------------------------------------------
+# expand_chain_pattern
+# ---------------------------------------------------------------------------
+
+
+def test_expand_chain_pattern_literal_spec():
+    """A plain (no-meta) spec resolves to exactly that one spec."""
+    result = expand_chain_pattern("z25-sel4-m06p-dvi1")
+    assert result == ["z25-sel4-m06p-dvi1"]
+
+
+def test_expand_chain_pattern_ztier_alternation():
+    """(z25|z100)-sel4-m06p-dvi1 → exactly those two specs."""
+    result = expand_chain_pattern("(z25|z100)-sel4-m06p-dvi1")
+    assert sorted(result) == ["z100-sel4-m06p-dvi1", "z25-sel4-m06p-dvi1"]
+
+
+def test_expand_chain_pattern_tmo_wildcard():
+    """z6-sel4-.*-dvi1 → all z6/sel4/<tmo>/dvi1 chains (one per TMO variant)."""
+    result = expand_chain_pattern("z6-sel4-.*-dvi1")
+    assert len(result) == len(TMO_VARIANTS)
+    assert all(s.startswith("z6-sel4-") and s.endswith("-dvi1") for s in result)
+    assert "z6-sel4-dvi1" not in result  # enfuse-only chain must not appear
+
+
+def test_expand_chain_pattern_char_class():
+    """(z25|z100)-sel4-m.*[pn]-dvi1 → z25/z100 × sel4 × {m06p,m08n} × dvi1."""
+    result = expand_chain_pattern("(z25|z100)-sel4-m.*[pn]-dvi1")
+    assert sorted(result) == [
+        "z100-sel4-m06p-dvi1",
+        "z100-sel4-m08n-dvi1",
+        "z25-sel4-m06p-dvi1",
+        "z25-sel4-m08n-dvi1",
+    ]
+
+
+def test_expand_chain_pattern_no_match_returns_empty(caplog):
+    """A pattern matching nothing returns [] and emits a warning."""
+    import logging
+    with caplog.at_level(logging.WARNING):
+        result = expand_chain_pattern("z25-badenfuse-m06p-dvi1")
+    assert result == []
+    assert "matched no valid chain specs" in caplog.text
+
+
+def test_expand_chain_pattern_deduplicates():
+    """Overlapping alternation must not produce duplicate specs."""
+    result = expand_chain_pattern("(z25|z25)-sel4-m06p-dvi1")
+    assert result.count("z25-sel4-m06p-dvi1") == 1
+
+
+def test_expand_chain_pattern_enfuse_only():
+    """Pattern without a TMO segment resolves to enfuse-only chains."""
+    result = expand_chain_pattern("z25-sel4-dvi1")
+    assert result == ["z25-sel4-dvi1"]
+
+
+def test_expand_chain_pattern_all_gradings_wildcard():
+    """z25-sel4-m06p-.* → sel4/m06p with every grading preset."""
+    result = expand_chain_pattern("z25-sel4-m06p-.*")
+    assert len(result) == len(GRADING_PRESETS)
+    assert all(s.startswith("z25-sel4-m06p-") for s in result)

@@ -191,31 +191,17 @@ def apply_grading(
 
 
 def annotate_image(jpg: Path) -> None:
-    """Overlay NNNN (bold, large) and chain spec (smaller) at bottom centre of a variant JPEG.
-
-    Expected filename convention: YYYYMMDDHHMMSS-CCCxxx-NNNN-chain.jpg
-    Modifies the file in place via mogrify.
-    """
-    parts = jpg.stem.split("-")
-    if len(parts) < 5:
-        return
-    nnnn = parts[2]
-    chain = "-".join(parts[3:])
+    """Overlay the full filename (stem) at bottom centre of a variant JPEG in place."""
     run_command(
         [
             "mogrify",
             "-font", "Liberation-Sans-Bold",
             "-fill", "white",
             "-undercolor", "#00000099",
-            "-pointsize", "34",
-            "-gravity", "South",
-            "-annotate", "+0+32",
-            nnnn,
-            "-font", "Liberation-Sans",
-            "-pointsize", "22",
+            "-pointsize", "24",
             "-gravity", "South",
             "-annotate", "+0+8",
-            chain,
+            jpg.stem,
             str(jpg),
         ],
         f"annotate {jpg.name}",
@@ -279,8 +265,8 @@ def create_collage(
 
     TILE_W = 640  # tiles are resized to this width; height follows source aspect ratio
 
-    def labeled_tile_two_line(src: Path, line1: str, line2: str, dst: Path) -> Optional[Path]:
-        """Produce a resized tile with bold NNNN (line1) and smaller chain spec (line2)."""
+    def labeled_tile(src: Path, label: str, dst: Path) -> Optional[Path]:
+        """Produce a resized tile with the full filename label at the bottom."""
         if not src.exists():
             return None
         cmd = [
@@ -289,16 +275,12 @@ def create_collage(
             "-font", "Liberation-Sans-Bold",
             "-fill", "white",
             "-undercolor", "#000000aa",
-            "-pointsize", "28",
-            "-gravity", "South",
-            "-annotate", "+0+28", line1,
-            "-font", "Liberation-Sans",
             "-pointsize", "18",
             "-gravity", "South",
-            "-annotate", "+0+6", line2,
+            "-annotate", "+0+6", label,
             str(dst),
         ]
-        run_command(cmd, f"tile {line1}", check=False)
+        run_command(cmd, f"tile {label[:30]}", check=False)
         return dst if dst.exists() else None
 
     tile_dir = output_dir / "_tiles"
@@ -306,26 +288,20 @@ def create_collage(
 
     all_tiles: List[Path] = []
 
-    # Originals first; label: NNNN bold above frame suffix (e.g. "2126" / "a")
+    # Originals first; label: full filename stem
     for i, photo in enumerate(source_photos):
         tile = tile_dir / f"orig_{i:03d}.jpg"
-        parts = Path(photo.filename).stem.split("-")
-        nnnn = parts[2] if len(parts) >= 3 else Path(photo.filename).stem
-        suffix = parts[3] if len(parts) >= 4 else ""
-        result = labeled_tile_two_line(photo.path, nnnn, suffix, tile)
+        result = labeled_tile(photo.path, Path(photo.filename).stem, tile)
         if result:
             all_tiles.append(result)
 
-    # Variants; label: NNNN bold above chain spec, e.g. "2126" / "z25-sel3-fatc-dvi2"
+    # Variants; label: full filename stem
     for variant_name in sorted(all_variants):
         vpath = output_dir / variant_name
         if not vpath.exists():
             continue
-        parts = Path(variant_name).stem.split("-")
-        nnnn = parts[2] if len(parts) >= 3 else ""
-        chain = "-".join(parts[3:]) if len(parts) > 3 else Path(variant_name).stem
         tile = tile_dir / f"var_{variant_name}"
-        result = labeled_tile_two_line(vpath, nnnn, chain, tile)
+        result = labeled_tile(vpath, Path(variant_name).stem, tile)
         if result:
             all_tiles.append(result)
 
