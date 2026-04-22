@@ -1,4 +1,4 @@
-# ppsp — Post Photoshoot Processing
+# ppsp — Post PhotoShoot Processor (or Python Photo Stack Processor)
 
 A CLI tool for real-estate and architectural photographers who shoot 200+ images per session and publish 10–20 polished finals.
 `ppsp` is purpose-built around **stack processing**: every image is treated as part of an HDR exposure bracket or focus stack, and the tool is designed to handle dozens of stacks in a single automated run.
@@ -554,4 +554,46 @@ For a deep-dive into the underlying tools and the reasoning behind ppsp's built-
 - Tone-mapping with `luminance-hdr-cli` — every supported operator, parameter guide, when to use each one
 - Color grading with ImageMagick — S-curve contrast, sharpening, the six built-in grading presets
 - Photography-context guide — which operator combinations work best for each shot type
+
+## Related projects
+
+### 1. Core tools used in this ppsp project
+
+These are the foundational command-line utilities that ppsp is empowered by:
+
+| Tool | Core Engine | Primary Focus | Best Used When... | Advantage over Alternatives |
+| :--- | :--- | :--- | :--- | :--- |
+| **[exiftool](https://exiftool.org/)** | Perl | Metadata | Extracting timestamps and Exposure Compensation. | Superior to `exiv2` for deep metadata coverage and complex tag processing. |
+| **[dcraw](https://www.dechifro.org/dcraw/)** | C | RAW Decoding | Converting Sony ARW files to 16-bit TIFFs. | Extremely lightweight and fast compared to full-featured RAW processors. |
+| **[hugin-tools](http://hugin.sourceforge.net/)** | PanoTools | Alignment | Pixel-perfect registration of hand-held or vibrating stacks. | `align_image_stack` is the industry-standard CLI for image registration. |
+| **[enblend/enfuse](https://enblend.sourceforge.net/)** | C++ | Fusion | Blending exposures into a natural, "human-eye" look. | Produces far more realistic real-estate interiors than traditional HDR tone-mapping. |
+| **[Luminance HDR](https://github.com/LuminanceHDR/LuminanceHDR)** | Qt / Multi-Engine | Tone-mapping | Applying specific mathematical operators (e.g., KimKautz, Mantiuk). | Provides access to multiple advanced tone-mapping algorithms in a single CLI/GUI. |
+| **[Darktable (CLI)](https://www.darktable.org/)** | OpenCL / RAW | Batch Processing | Applying non-destructive edits and RAW development via scripts. | Highly extensible; allows complex "sidecar" based automation for high-end RAW development. |
+| **[ImageMagick](https://imagemagick.org/)** | C / Multiple | Final Polish | Batch color-grading, sharpening, and JPEG conversion. | The most powerful scriptable image manipulation suite available for Linux servers. |
+
+### 2. Other related open-source tools
+
+This table includes the wider ecosystem, including GUI wrappers and specialized scientific stacking tools:
+
+| Tool / Repository | Interface | Primary Focus | Best Used When... | Advantage over Alternatives |
+| :--- | :--- | :--- | :--- | :--- |
+| **[HDRMerge](https://github.com/jcelaya/hdrmerge)** | GUI / CLI | Raw Merging | Merging brackets into a single 32-bit DNG RAW file. | Better if you want to keep the final file in a RAW format for later editing in Lightroom. |
+| **[RawTherapee](https://rawtherapee.com/)** | GUI | Demosaicing | Recovery of extreme highlight detail and noise reduction. | Often provides cleaner demosaicing than dcraw for complex, high-ISO textures. |
+| **[Siril](https://siril.org/)** | GUI / CLI | Noise Reduction | Stacking many photos to eliminate sensor noise. | Originally for astrophotography; better than enfuse for extremely dark, noisy indoor scenes. |
+| **[PyImageFuser](https://github.com/hvdwolf/PyImageFuser)** | GUI | Exposure Fusion | Simple, manual exposure fusion on a desktop. | Better for users who are uncomfortable with the command line but want the Enfuse look. |
+| **[Macrofusion](https://github.com/dandv/macrofusion)** | GUI | Focus Stacking | Merging macro shots with shallow depth-of-field. | Specialized for focus-plane merging rather than dynamic range expansion. |
+| **[GIMP](https://www.gimp.org/)** | GUI | Retouching | Removing unwanted objects (cables, trash) from the final shot. | Necessary for "cleaning" a room when the physical space wasn't perfectly staged. |
+
+### 3. Proprietary (non-open-source) alternatives
+
+For professional context, these are the "commercial" competitors that ppsp is designed to disrupt or emulate:
+
+| Software | Platform | Real Estate Context | Best Known For | Why use ppsp instead? |
+| :--- | :--- | :--- | :--- | :--- |
+| **Adobe Lightroom** | Win / Mac | Industry Standard | Ease of use and cloud sync. | `ppsp` is free, open source, easily scriptable and extensible, and runs natively on Linux. |
+| **Photomatix Pro** | Win / Mac | Interior Specialist | Robust "Interior" presets. | `ppsp` offers a more natural "fusion" look without licensing fees. |
+| **Affinity Photo** | Multi | Budget Professional | Professional "HDR Persona." | `ppsp` allows for headless, fully automated batch processing. |
+| **Aurora HDR** | Win / Mac | AI Automation | Automatic "look" generation. | `ppsp` provides more granular control over the math (mu, sigma, etc.). |
+| **LrEnfuse** | Plugin | Adobe Bridge | Bringing Enfuse into Lightroom. | `ppsp` removes the dependency on expensive Adobe subscriptions. |
+
 
