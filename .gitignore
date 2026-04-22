@@ -6,9 +6,5 @@ dist/
 build/
 .eggs/
 *.egg
-ppsp.log
-ppsp_photos.csv
-ppsp_generate.csv
 .claude
 CLAUDE.md
-prompting.txt

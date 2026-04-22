@@ -516,12 +516,14 @@ shoot/
 
 ## Usage example (actually used on 2026-04-22)
 
+```bash
 ppsp --rename -l L15
 ppsp --organize
 ppsp --cull
 ppsp --prune
 ppsp --discover -V 'sel4,sel5,r02p,fatd,kimd,m06p,deno,dvi1,dvi2' -z z6
 ppsp --generate -z z25
+```
 
 ## Development
 
