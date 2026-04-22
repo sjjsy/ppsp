@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ppsp"
 version = "0.1.0"
-description = "Post Photoshoot Processing — CLI tool for architectural photographers"
+description = "Post Photoshoot Processing — CLI tool for HDR and focus stack photographers"
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }

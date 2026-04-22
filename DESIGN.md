@@ -102,7 +102,7 @@ Parsed representation of a variant chain extracted from a filename.
 class ChainSpec:
     z_tier: str             # "z100", "z25", or "z13"
     enfuse_id: str          # e.g. "sel3" or "focu"
-    tmo_id: Optional[str]   # e.g. "fatt"; None for focus stacks
+    tmo_id: Optional[str]   # e.g. "fatd"; None for focus stacks
     grading_id: str         # e.g. "dvi2"
     web: bool               # True if the "-web" suffix is present
 ```
