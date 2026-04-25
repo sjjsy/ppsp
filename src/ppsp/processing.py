@@ -10,7 +10,7 @@ from typing import Dict, List, Optional
 
 from .models import ChainSpec, Photo, StackType
 from .util import run_command
-from .variants import ENFUSE_FOCUS, ENFUSE_VARIANTS, GRADING_PRESETS, TMO_VARIANTS
+from .variants import CT_PRESETS, ENFUSE_FOCUS, ENFUSE_VARIANTS, GRADING_PRESETS, TMO_VARIANTS
 
 _RAW_EXTS = frozenset({".arw", ".raw", ".cr2", ".nef", ".dng"})
 
@@ -184,18 +184,30 @@ def apply_grading(
     grading_id: str,
     quality: int,
     redo: bool = False,
+    ct_id: Optional[str] = None,
 ) -> bool:
-    """Apply an ImageMagick grading preset to produce the final JPG — see README.md § Color-grading presets."""
+    """Apply an ImageMagick grading (and optional CT) preset to produce the final JPG.
+
+    When ct_id is given the CT args are inserted after -colorspace sRGB and before the
+    grading args — matching the order established in the former warm/dv1w presets.
+    See README.md § Color-temperature presets.
+    """
     if dst_jpg.exists() and not redo:
         return True
 
-    grading_args = GRADING_PRESETS.get(grading_id, [])
-    cmd = (
-        ["convert", str(src)]
-        + grading_args
-        + ["-quality", str(quality), str(dst_jpg)]
-    )
-    run_command(cmd, f"grading {grading_id}")
+    grading_args = list(GRADING_PRESETS.get(grading_id, []))
+
+    if ct_id:
+        ct_args = CT_PRESETS.get(ct_id, [])
+        # Strip the leading -colorspace sRGB from grading_args (we emit it once).
+        if grading_args[:2] == ["-colorspace", "sRGB"]:
+            grading_args = grading_args[2:]
+        merged = ["-colorspace", "sRGB"] + ct_args + grading_args
+    else:
+        merged = grading_args
+
+    cmd = ["convert", str(src)] + merged + ["-quality", str(quality), str(dst_jpg)]
+    run_command(cmd, f"grading {grading_id}" + (f"+{ct_id}" if ct_id else ""))
     return dst_jpg.exists()
 
 
@@ -361,6 +373,7 @@ def process_stack(
     quality: int,
     source_photos: List[Photo],
     grading_ids: Optional[List[str]] = None,
+    ct_ids: Optional[List[str]] = None,
     chain_specs: Optional[List[ChainSpec]] = None,
     redo: bool = False,
 ) -> List[str]:
@@ -411,8 +424,9 @@ def process_stack(
             return []
 
     effective_gradings = grading_ids if grading_ids is not None else list(GRADING_PRESETS.keys())
+    effective_cts = ct_ids if ct_ids is not None else []
 
-    # 3-5. Enfuse × TMO × Grading
+    # 3-5. Enfuse × TMO × Grading × CT
     generated: List[str] = []
     mid_photo = source_photos[len(source_photos) // 2]
 
@@ -424,12 +438,12 @@ def process_stack(
     elif stack_type == StackType.FOCUS:
         _run_focus_variants(
             aligned, output_dir, stack_name, z_tier,
-            effective_gradings, quality, mid_photo, redo, generated,
+            effective_gradings, effective_cts, quality, mid_photo, redo, generated,
         )
     else:
         _run_hdr_variants(
             aligned, output_dir, stack_name, z_tier,
-            enfuse_ids, tmo_ids, effective_gradings, quality, mid_photo, redo, generated,
+            enfuse_ids, tmo_ids, effective_gradings, effective_cts, quality, mid_photo, redo, generated,
         )
 
     # Collage lives in output_dir alongside the variants
@@ -465,14 +479,19 @@ def _run_chain_specs(
                 logging.error("TMO failed for chain spec %s-%s", spec.enfuse_id, spec.tmo_id)
                 continue
             grading_src = tmo_jpg
-            out_name = f"{base}-{z_tier}-{spec.enfuse_id}-{spec.tmo_id}-{spec.grading_id}.jpg"
+            chain_base = f"{base}-{z_tier}-{spec.enfuse_id}-{spec.tmo_id}-{spec.grading_id}"
         else:
             grading_src = enfuse_tif
-            out_name = f"{base}-{z_tier}-{spec.enfuse_id}-{spec.grading_id}.jpg"
+            chain_base = f"{base}-{z_tier}-{spec.enfuse_id}-{spec.grading_id}"
+
+        if spec.ct_id:
+            out_name = f"{chain_base}-{spec.ct_id}.jpg"
+        else:
+            out_name = f"{chain_base}.jpg"
 
         out_path = output_dir / out_name
         newly_created = not out_path.exists() or redo
-        ok = apply_grading(grading_src, out_path, spec.grading_id, quality, redo=redo)
+        ok = apply_grading(grading_src, out_path, spec.grading_id, quality, redo=redo, ct_id=spec.ct_id)
         if ok:
             if newly_created:
                 _copy_exif(mid_photo.path, out_path)
@@ -491,27 +510,32 @@ def _run_focus_variants(
     stack_name: str,
     z_tier: str,
     grading_ids: List[str],
+    ct_ids: List[str],
     quality: int,
     mid_photo: Photo,
     redo: bool,
     generated: List[str],
 ) -> None:
-    """Run the single focus-stack enfuse + grading chain — see README.md § Enfuse variants."""
-    enfuse_tif = output_dir / f"{_base_name(stack_name)}-{z_tier}-focu.tif"
+    """Run the single focus-stack enfuse + grading (+ optional CT) chain — see README.md § Enfuse variants."""
+    base = _base_name(stack_name)
+    enfuse_tif = output_dir / f"{base}-{z_tier}-focu.tif"
     ok = run_enfuse(aligned, enfuse_tif, "focu", redo=redo)
     if not ok:
         return
 
+    ct_options: List[Optional[str]] = [None] + list(ct_ids)
     for grading_id in grading_ids:
-        out_name = f"{_base_name(stack_name)}-{z_tier}-focu-{grading_id}.jpg"
-        out_path = output_dir / out_name
-        newly_created = not out_path.exists() or redo
-        ok = apply_grading(enfuse_tif, out_path, grading_id, quality, redo=redo)
-        if ok:
-            if newly_created:
-                _copy_exif(mid_photo.path, out_path)
-                annotate_image(out_path)
-            generated.append(out_name)
+        for ct_id in ct_options:
+            suffix = f"-{ct_id}" if ct_id else ""
+            out_name = f"{base}-{z_tier}-focu-{grading_id}{suffix}.jpg"
+            out_path = output_dir / out_name
+            newly_created = not out_path.exists() or redo
+            ok = apply_grading(enfuse_tif, out_path, grading_id, quality, redo=redo, ct_id=ct_id)
+            if ok:
+                if newly_created:
+                    _copy_exif(mid_photo.path, out_path)
+                    annotate_image(out_path)
+                generated.append(out_name)
 
 
 def _run_hdr_variants(
@@ -522,13 +546,15 @@ def _run_hdr_variants(
     enfuse_ids: List[str],
     tmo_ids: List[str],
     grading_ids: List[str],
+    ct_ids: List[str],
     quality: int,
     mid_photo: Photo,
     redo: bool,
     generated: List[str],
 ) -> None:
-    """Run all enfuse × TMO × grading combinations for an HDR stack — see README.md § Variant levels."""
+    """Run all enfuse × TMO × grading × CT combinations for an HDR stack — see README.md § Variant levels."""
     base = _base_name(stack_name)
+    ct_options: List[Optional[str]] = [None] + list(ct_ids)
 
     for enfuse_id in enfuse_ids:
         enfuse_tif = output_dir / f"{base}-{z_tier}-{enfuse_id}.tif"
@@ -538,15 +564,17 @@ def _run_hdr_variants(
 
         # Enfuse-only grading (no TMO)
         for grading_id in grading_ids:
-            out_name = f"{base}-{z_tier}-{enfuse_id}-{grading_id}.jpg"
-            out_path = output_dir / out_name
-            newly_created = not out_path.exists() or redo
-            ok2 = apply_grading(enfuse_tif, out_path, grading_id, quality, redo=redo)
-            if ok2:
-                if newly_created:
-                    _copy_exif(mid_photo.path, out_path)
-                    annotate_image(out_path)
-                generated.append(out_name)
+            for ct_id in ct_options:
+                suffix = f"-{ct_id}" if ct_id else ""
+                out_name = f"{base}-{z_tier}-{enfuse_id}-{grading_id}{suffix}.jpg"
+                out_path = output_dir / out_name
+                newly_created = not out_path.exists() or redo
+                ok2 = apply_grading(enfuse_tif, out_path, grading_id, quality, redo=redo, ct_id=ct_id)
+                if ok2:
+                    if newly_created:
+                        _copy_exif(mid_photo.path, out_path)
+                        annotate_image(out_path)
+                    generated.append(out_name)
 
         # TMO variants
         for tmo_id in tmo_ids:
@@ -556,15 +584,17 @@ def _run_hdr_variants(
                 continue
 
             for grading_id in grading_ids:
-                out_name = f"{base}-{z_tier}-{enfuse_id}-{tmo_id}-{grading_id}.jpg"
-                out_path = output_dir / out_name
-                newly_created = not out_path.exists() or redo
-                ok4 = apply_grading(tmo_jpg, out_path, grading_id, quality, redo=redo)
-                if ok4:
-                    if newly_created:
-                        _copy_exif(mid_photo.path, out_path)
-                        annotate_image(out_path)
-                    generated.append(out_name)
+                for ct_id in ct_options:
+                    suffix = f"-{ct_id}" if ct_id else ""
+                    out_name = f"{base}-{z_tier}-{enfuse_id}-{tmo_id}-{grading_id}{suffix}.jpg"
+                    out_path = output_dir / out_name
+                    newly_created = not out_path.exists() or redo
+                    ok4 = apply_grading(tmo_jpg, out_path, grading_id, quality, redo=redo, ct_id=ct_id)
+                    if ok4:
+                        if newly_created:
+                            _copy_exif(mid_photo.path, out_path)
+                            annotate_image(out_path)
+                        generated.append(out_name)
 
 
 def _base_name(stack_name: str) -> str:

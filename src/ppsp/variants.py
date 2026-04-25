@@ -1,4 +1,4 @@
-"""Variant parameter tables for enfuse, TMO, and grading — see README.md § Variant system."""
+"""Variant parameter tables for enfuse, TMO, grading, and CT — see README.md § Variant system."""
 
 from __future__ import annotations
 
@@ -137,24 +137,10 @@ GRADING_PRESETS: Dict[str, List[str]] = {
         "-colorspace", "sRGB",
         "-unsharp", "0x0.8+0.5+0.05",
     ],
-    "warm": [
-        "-colorspace", "sRGB",
-        # for ImageMagic 7:
-        # ~ "-color-temperature", "6000", "4500", # Warm the light (6500K is daylight)
-        # for ImageMagic 6:
-        "+level-colors", "black,#fffef5", # shift the white point to a warmer ivory
-        "-channel", "R", "-gamma", "1.07",
-        "-channel", "G", "-gamma", "1.03",
-        "-channel", "B", "-gamma", "0.95", "+channel",  # reduce blue channel, while increasing red and green
-        "-despeckle",
-        "-channel", "B", "-gamma", "0.96", "+channel",  # reduces blue channel
-        "-modulate", "100,105,97",
-        "-unsharp", "0x0.8+0.5+0.05",
-    ],
     "brig": [
         "-colorspace", "sRGB",
         "-sigmoidal-contrast", "3,50%",
-        "-brightness-contrast", "8x-5",
+        "-evaluate", "multiply", "1.10",
         "-modulate", "100,105,100",
         "-unsharp", "0x1+0.5+0.05",
     ],
@@ -162,7 +148,7 @@ GRADING_PRESETS: Dict[str, List[str]] = {
         "-colorspace", "sRGB",
         "-despeckle",
         "-sigmoidal-contrast", "3,50%",
-        "-brightness-contrast", "6x-4",
+        "-evaluate", "multiply", "1.07",
         "-modulate", "100,105,100",
         "-unsharp", "0x1.5+1.0+0.05",
     ],
@@ -170,22 +156,7 @@ GRADING_PRESETS: Dict[str, List[str]] = {
         "-colorspace", "sRGB",
         "-despeckle",
         "-sigmoidal-contrast", "3,50%",
-        "-brightness-contrast", "7x-5",
-        "-modulate", "100,112,100",
-        "-unsharp", "0x1+0.8+0.05",
-    ],
-    "dv1w": [
-        "-colorspace", "sRGB",
-        # for ImageMagic 7:
-        # ~ "-color-temperature", "6000", "4500", # Warm the light (6500K is daylight)
-        # for ImageMagic 6:
-        "+level-colors", "black,#fffef5", # shift the white point to a warmer ivory
-        "-channel", "R", "-gamma", "1.07",
-        "-channel", "G", "-gamma", "1.03",
-        "-channel", "B", "-gamma", "0.95", "+channel",  # reduce blue channel, while increasing red and green
-        "-despeckle",
-        "-sigmoidal-contrast", "3,50%",
-        "-brightness-contrast", "7x-5",
+        "-evaluate", "multiply", "1.08",
         "-modulate", "100,112,100",
         "-unsharp", "0x1+0.8+0.05",
     ],
@@ -193,33 +164,71 @@ GRADING_PRESETS: Dict[str, List[str]] = {
         "-colorspace", "sRGB",
         "-despeckle",
         "-sigmoidal-contrast", "4,45%",
-        "-brightness-contrast", "12x-8",
+        "-evaluate", "multiply", "1.12",
         "-modulate", "100,118,100",
         "-unsharp", "0x1.2+0.6+0.05",
     ],
 }
 
-# Preset level definitions: (enfuse_ids, tmo_ids, grading_ids) — see README.md § Variant levels
-VARIANT_LEVELS: Dict[str, Tuple[List[str], List[str], List[str]]] = {
+# Color-temperature presets — see README.md § Color-temperature presets
+# Args are prepended before grading args (after a single -colorspace sRGB):
+# the correct order is CT (channel gamma / white-point shift) before contrast/sharpening.
+CT_PRESETS: Dict[str, List[str]] = {
+    "ctw4": [
+        "+level-colors", "black,#fff8e8",
+        "-channel", "R", "-gamma", "1.10",
+        "-channel", "G", "-gamma", "1.04",
+        "-channel", "B", "-gamma", "0.90", "+channel",
+    ],
+    "ctw5": [
+        "+level-colors", "black,#fffef5",
+        "-channel", "R", "-gamma", "1.07",
+        "-channel", "G", "-gamma", "1.03",
+        "-channel", "B", "-gamma", "0.95", "+channel",
+    ],
+    "ctd6": [
+        "+level-colors", "black,#fffffe",
+    ],
+    "ctc7": [
+        "+level-colors", "black,#f5f8ff",
+        "-channel", "R", "-gamma", "0.95",
+        "-channel", "G", "-gamma", "0.97",
+        "-channel", "B", "-gamma", "1.06", "+channel",
+    ],
+    "ctc9": [
+        "+level-colors", "black,#f0f4ff",
+        "-channel", "R", "-gamma", "0.92",
+        "-channel", "G", "-gamma", "0.95",
+        "-channel", "B", "-gamma", "1.12", "+channel",
+    ],
+}
+
+# Preset level definitions: (enfuse_ids, tmo_ids, grading_ids, ct_ids) — see README.md § Variant levels
+# ct_ids = [] means no CT variants; non-empty ct_ids generate additional chains on top of the base set.
+VARIANT_LEVELS: Dict[str, Tuple[List[str], List[str], List[str], List[str]]] = {
     "some": (
         ["sel4"],
         ["m08n", "fatn"],
         ["neut", "dvi1"],
+        [],
     ),
     "many": (
         ["natu", "sel3", "sel4"],
         ["m08n", "fatn"],
         ["neut", "dvi1"],
+        ["ctw5"],
     ),
     "lots": (
         ["natu", "sel3", "sel4", "sel6", "cont"],
         ["m08n", "m08c", "m06p", "r02p", "dras", "fatc"],
-        ["neut", "warm", "brig", "dvi1", "dvi2"],
+        ["neut", "brig", "dvi1", "dvi2"],
+        ["ctw5"],
     ),
     "all": (
         list(ENFUSE_VARIANTS.keys()),
         list(TMO_VARIANTS.keys()),
         list(GRADING_PRESETS.keys()),
+        list(CT_PRESETS.keys()),
     ),
 }
 
@@ -249,23 +258,40 @@ def parse_full_chain_spec(s: str) -> Optional[ChainSpec]:
     if spec is None:
         return None
     from .models import ChainSpec as _ChainSpec
-    return _ChainSpec(z_tier=z_tier, enfuse_id=spec.enfuse_id, tmo_id=spec.tmo_id, grading_id=spec.grading_id)
+    return _ChainSpec(z_tier=z_tier, enfuse_id=spec.enfuse_id, tmo_id=spec.tmo_id, grading_id=spec.grading_id, ct_id=spec.ct_id)
 
 
 def parse_variant_chain(s: str) -> Optional[ChainSpec]:
-    """Parse a compact chain spec like 'sel4-fatt-dvi1' or 'sel4-neut' into a ChainSpec.
+    """Parse a compact chain spec like 'sel4-m08n-dvi1' or 'sel4-dvi1-ctw5' into a ChainSpec.
 
-    The z_tier is omitted from the spec and must be supplied by the caller at processing time.
-    Returns None if the string cannot be resolved to a valid (enfuse, optional-tmo, grading) chain.
+    Accepted lengths (segments separated by '-'):
+      2: enfuse-grading
+      3: enfuse-tmo-grading  OR  enfuse-grading-ct
+      4: enfuse-tmo-grading-ct
+
+    The z_tier is omitted and must be supplied by the caller at processing time.
+    Returns None if the string cannot be resolved to a valid chain.
     """
     from .models import ChainSpec as _ChainSpec
 
     parts = s.strip().split("-")
+
+    ct_id: Optional[str] = None
+    tmo_id: Optional[str] = None
+
     if len(parts) == 2:
         enfuse_id, grading_id = parts
-        tmo_id: Optional[str] = None
     elif len(parts) == 3:
-        enfuse_id, tmo_id, grading_id = parts
+        # Either enfuse-tmo-grading or enfuse-grading-ct
+        if parts[1] in TMO_VARIANTS:
+            enfuse_id, tmo_id, grading_id = parts
+        elif parts[2] in CT_PRESETS:
+            enfuse_id, grading_id = parts[0], parts[1]
+            ct_id = parts[2]
+        else:
+            enfuse_id, tmo_id, grading_id = parts  # will fail validation below
+    elif len(parts) == 4:
+        enfuse_id, tmo_id, grading_id, ct_id = parts
     else:
         return None
 
@@ -275,12 +301,14 @@ def parse_variant_chain(s: str) -> Optional[ChainSpec]:
         return None
     if grading_id not in GRADING_PRESETS:
         return None
+    if ct_id is not None and ct_id not in CT_PRESETS:
+        return None
 
-    return _ChainSpec(z_tier="", enfuse_id=enfuse_id, tmo_id=tmo_id, grading_id=grading_id)
+    return _ChainSpec(z_tier="", enfuse_id=enfuse_id, tmo_id=tmo_id, grading_id=grading_id, ct_id=ct_id)
 
 
-def expand_variants(level_or_list: str) -> Tuple[List[str], List[str], List[str]]:
-    """Expand a preset level or comma-separated ID list to (enfuse_ids, tmo_ids, grading_ids).
+def expand_variants(level_or_list: str) -> Tuple[List[str], List[str], List[str], List[str]]:
+    """Expand a preset level or comma-separated ID list to (enfuse_ids, tmo_ids, grading_ids, ct_ids).
 
     Tokens are classified by which dictionary they appear in; a single token may only belong
     to one class. Mode 3 (chain specs containing '-') is not handled here — see commands.py.
@@ -294,7 +322,8 @@ def expand_variants(level_or_list: str) -> Tuple[List[str], List[str], List[str]
     enfuse_ids = [i for i in ids if i in ENFUSE_VARIANTS]
     tmo_ids = [i for i in ids if i in TMO_VARIANTS]
     grading_ids = [i for i in ids if i in GRADING_PRESETS]
-    return enfuse_ids, tmo_ids, grading_ids
+    ct_ids = [i for i in ids if i in CT_PRESETS]
+    return enfuse_ids, tmo_ids, grading_ids, ct_ids
 
 
 # ---------------------------------------------------------------------------
@@ -303,17 +332,22 @@ def expand_variants(level_or_list: str) -> Tuple[List[str], List[str], List[str]
 
 
 def _all_valid_variant_chains() -> List[str]:
-    """Enumerate every valid variant chain string (enfuse + optional TMO + grading, no z-tier)."""
+    """Enumerate every valid variant chain string (enfuse + optional TMO + grading + optional CT, no z-tier)."""
     chains: List[str] = []
     enfuse_ids = list(ENFUSE_VARIANTS.keys()) + ["focu"]
     tmo_ids = list(TMO_VARIANTS.keys())
     grading_ids = list(GRADING_PRESETS.keys())
+    ct_ids = list(CT_PRESETS.keys())
     for e in enfuse_ids:
         for g in grading_ids:
             chains.append(f"{e}-{g}")
+            for ct in ct_ids:
+                chains.append(f"{e}-{g}-{ct}")
         for t in tmo_ids:
             for g in grading_ids:
                 chains.append(f"{e}-{t}-{g}")
+                for ct in ct_ids:
+                    chains.append(f"{e}-{t}-{g}-{ct}")
     return chains
 
 

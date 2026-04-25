@@ -92,6 +92,7 @@ Running `ppsp` without a command flag walks you through all steps interactively.
 | `--variants SPEC` | `-V` | see note | `-D`, `-g` | What to discover or generate — see [§ --variants (-V)](#--variants--v); default is `some` for `-D` and `variants/` for `-g` |
 | `--size SIZE` | `-z` | see note | `-D`, `-g` | Resolution tier: `z2`/`micro`, `z6`/`quarter`, `z25`/`half`, `z100`/`full` — default is `z25` for `-D` and `z100` for `-g` |
 | `--quality INT` | `-q` | `80` | all | JPEG quality for internal conversions |
+| `--resolution PX` | `-i` | — | `-g` | Long-side pixel cap; adds a resized copy to `out-{PX}/` alongside the full-res `out-{BBBB}/` |
 | `--redo` | `-R` | off | all | Regenerate outputs even if they already exist |
 | `--viewer VIEWER` | — | `xdg-open` | full workflow | Image viewer opened automatically during cull and variants review steps |
 
@@ -136,10 +137,10 @@ YYYYMMDDHHMMSS-CCC[LLL]-NNNN-[chain].[ext]
 The `chain` for original camera files is a single collision-avoidance letter (`a`, `b`, `c`, …), incremented when two files from the same camera, lens, and second would otherwise collide. For processed outputs, the chain is a `-`-separated sequence of stage identifiers in fixed order:
 
 ```
-[z-tier]-[enfuse-id]-[tmo-id]-[grading-id][-web]
+[z-tier]-[enfuse-id]-[tmo-id]-[grading-id][-ct-id]
 ```
 
-`tmo-id` is omitted for focus stacks and pure enfuse outputs. `-web` is appended only on web-export copies.
+`tmo-id` is omitted for focus stacks and pure enfuse outputs. `ct-id` is optional and only present when a color-temperature preset was applied.
 
 | Filename | Meaning |
 |---|---|
@@ -147,7 +148,7 @@ The `chain` for original camera files is a single collision-avoidance letter (`a
 | `20260416095559-m4azzz-2126-a.jpg` | Camera JPG companion |
 | `20260416095559-m4azzz-2126-z25-sel3-fatc-dvi2.jpg` | Discovery variant at z25 |
 | `20260416095559-m4azzz-2126-z100-sel3-fatc-dvi2.jpg` | Full-quality generation |
-| `20260416095559-m4azzz-2126-z100-sel3-fatc-dvi2-web.jpg` | Web export |
+| `20260416095559-m4azzz-2126-z100-sel3-fatc-dvi1-ctw5.jpg` | Full-quality with warm CT shift |
 | `20260416095559-m4azzz-2126-z25-focu-neut.jpg` | Focus stack, `focu` variant, `neut` grading |
 
 Stack folders use the first image's base name with a `-stack` suffix: `20260416095559-m4azzz-2126-stack/`.
@@ -256,14 +257,14 @@ The z-tier label is encoded in every output filename. For `-g`, the tier is dete
 
 #### Preset variant levels
 
-Each preset also includes a default set of grading presets. Variants = (enfuse × gradings) + (enfuse × TMO × gradings).
+Each preset also includes a default set of grading presets. Variants = (enfuse × gradings) + (enfuse × TMO × gradings) × (no CT + CT IDs).
 
-| Level | Enfuse IDs | TMO IDs | Grading IDs |
-|---|---|---|---|
-| `some` *(default)* | `sel4` | `m08n`, `fatn` | `neut`, `dvi1` |
-| `many` | `natu`, `sel3`, `sel4` | `m08n`, `fatn` | `neut`, `dvi1` |
-| `lots` | `natu`, `sel3`, `sel4`, `sel6`, `cont` | `m08n`, `m08c`, `m06p`, `r02p`, `dras`, `fatc` | `neut`, `warm`, `brig`, `dvi1`, `dvi2` |
-| `all` | all nine | all sixteen | all six |
+| Level | Enfuse IDs | TMO IDs | Grading IDs | CT IDs |
+|---|---|---|---|---|
+| `some` *(default)* | `sel4` | `m08n`, `fatn` | `neut`, `dvi1` | — |
+| `many` | `natu`, `sel3`, `sel4` | `m08n`, `fatn` | `neut`, `dvi1` | `ctw5` |
+| `lots` | `natu`, `sel3`, `sel4`, `sel6`, `cont` | `m08n`, `m08c`, `m06p`, `r02p`, `dras`, `fatc` | `neut`, `brig`, `dvi1`, `dvi2` | `ctw5` |
+| `all` | all nine | all sixteen | all five | all five CT IDs |
 
 #### Enfuse variants
 
@@ -323,17 +324,27 @@ Note: The author compared the results with these tone-mapping presets with some 
 
 #### Color-grading presets
 
-Applied via ImageMagick `convert` as the final stage after fusion/TMO:
+Applied via ImageMagick `convert` as the final stage after fusion/TMO. Warm or cool colour-temperature shifts are handled by the separate CT presets below (combine `neut`+`ctw5` for the old `warm` look, `dvi1`+`ctw5` for the old `dv1w` look).
 
 | ID | Effect | ImageMagick parameters |
 |---|---|---|
 | `neut` | Clean, minimal processing | `-colorspace sRGB -unsharp 0x0.8+0.5+0.05` |
-| `warm` | Warm colour shift, desaturated blue channel | `-colorspace sRGB +level-colors black,#fffef5 -channel R -gamma 1.07 -channel G -gamma 1.03 -channel B -gamma 0.95 +channel -despeckle -channel B -gamma 0.96 +channel -modulate 100,105,97 -unsharp 0x0.8+0.5+0.05` |
-| `brig` | Brighter and slightly vivid, gentle sharpening | `-colorspace sRGB -sigmoidal-contrast 3,50% -brightness-contrast 8x-5 -modulate 100,105,100 -unsharp 0x1+0.5+0.05` |
-| `deno` | Denoised, mild brightness and saturation boost | `-colorspace sRGB -despeckle -sigmoidal-contrast 3,50% -brightness-contrast 6x-4 -modulate 100,105,100 -unsharp 0x1.5+1.0+0.05` |
-| `dvi1` | Punchy and vivid, strong saturation | `-colorspace sRGB -despeckle -sigmoidal-contrast 3,50% -brightness-contrast 7x-5 -modulate 100,112,100 -unsharp 0x1+0.8+0.05` |
-| `dv1w` | Like `dvi1` with warm colour shift | `-colorspace sRGB +level-colors black,#fffef5 -channel R -gamma 1.07 -channel G -gamma 1.03 -channel B -gamma 0.95 +channel -despeckle -sigmoidal-contrast 3,50% -brightness-contrast 7x-5 -modulate 100,112,100 -unsharp 0x1+0.8+0.05` |
-| `dvi2` | Very vivid, high local contrast | `-colorspace sRGB -despeckle -sigmoidal-contrast 4,45% -brightness-contrast 12x-8 -modulate 100,118,100 -unsharp 0x1.2+0.6+0.05` |
+| `brig` | Brighter and slightly vivid, gentle sharpening | `-colorspace sRGB -sigmoidal-contrast 3,50% -evaluate multiply 1.10 -modulate 100,105,100 -unsharp 0x1+0.5+0.05` |
+| `deno` | Denoised, mild brightness and saturation boost | `-colorspace sRGB -despeckle -sigmoidal-contrast 3,50% -evaluate multiply 1.07 -modulate 100,105,100 -unsharp 0x1.5+1.0+0.05` |
+| `dvi1` | Punchy and vivid, strong saturation | `-colorspace sRGB -despeckle -sigmoidal-contrast 3,50% -evaluate multiply 1.08 -modulate 100,112,100 -unsharp 0x1+0.8+0.05` |
+| `dvi2` | Very vivid, high local contrast | `-colorspace sRGB -despeckle -sigmoidal-contrast 4,45% -evaluate multiply 1.12 -modulate 100,118,100 -unsharp 0x1.2+0.6+0.05` |
+
+#### Color-temperature (CT) presets
+
+CT presets are an optional chain element appended after grading (`ct-id`). They apply a white-point shift and per-channel gamma before the grading's sharpening stage. Combine any grading with any CT preset.
+
+| ID | Effect | Description |
+|---|---|---|
+| `ctw4` | Warm +4 | Noticeable warm shift for mixed-light or candlelit interiors |
+| `ctw5` | Warm +5 (gentle) | Subtle warm tint; equivalent of the old `warm`/`dv1w` built-in shift |
+| `ctd6` | Daylight neutral | Near-neutral white-point clamp; very slight warm pull |
+| `ctc7` | Cool −7 (gentle) | Subtle cool-blue shift; blue-hour and overcast exteriors |
+| `ctc9` | Cool −9 | Stronger cool shift; deep blue-hour skies or intentionally cold scenes |
 
 #### Output structure after discovery
 
@@ -392,7 +403,7 @@ ppsp -g
 
 ```
 Filename	Generate
-20260416095559-m4azzz-2126-z100-sel3-fatc-dvi2.jpg	
+20260416095559-m4azzz-2126-z100-sel3-fatc-dvi2.jpg
 20260416095559-m4azzz-2126-z100-sel4-m06p-dvi1.jpg	x
 ```
 
@@ -402,7 +413,7 @@ ppsp -g -V ppsp_generate.csv
 
 ### Step 8 — Generate variants (`--generate` / `-g`)
 
-Generates selected variants at full quality for publishing. Outputs land in `out_full/` (quality 95) and `out_web/` (max 2048 px, quality 80, stripped metadata). Any variant already present in `out_full/` is skipped automatically; pass `--redo` to force regeneration. The `-s` flag limits generation to matching stacks.
+Generates selected variants at full quality for publishing. Each output is written to `out-{BBBB}/` where `BBBB` is the actual long-side pixel count of the generated image (e.g. `out-7952/` for a z100 Sony a7R IV output). If `--resolution PX` is specified, a second resized copy is also exported to `out-{PX}/` (e.g. `out-2048/`). Any variant already present in any `out-*/` folder is skipped automatically; pass `--redo` to force regeneration. The `-s` flag limits generation to matching stacks.
 
 Use `-V` to specify the source and `-z` to override the resolution tier — see [§ --variants (-V)](#--variants--v). The default is `-V variants/` (the folder that `-D` populates).
 
@@ -447,10 +458,10 @@ ppsp -g -V my_selection.txt
 **Mode 1 — Preset level** (`some` / `many` / `lots` / `all`): cross-product of the level's enfuse × TMO × grading IDs. Default for `-D` is `some`.
 
 ```bash
-ppsp -D -V some    # 1 enfuse × 2 TMO × 2 gradings (+ enfuse-only)
-ppsp -D -V many    # 3 enfuse × 2 TMO × 2 gradings
-ppsp -D -V lots    # 5 enfuse × 6 TMO × 5 gradings
-ppsp -D -V all     # all enfuse × all TMO × all gradings
+ppsp -D -V some    # 1 enfuse × 2 TMO × 2 gradings, no CT
+ppsp -D -V many    # 3 enfuse × 2 TMO × 2 gradings × {∅, ctw5}
+ppsp -D -V lots    # 5 enfuse × 6 TMO × 4 gradings × {∅, ctw5}  (≈280 variants)
+ppsp -D -V all     # all enfuse × all TMO × all gradings × all CT IDs
 ```
 
 **Mode 2 — Comma-separated IDs** (no `-` in any token): selects enfuse, TMO, and grading IDs and runs the cross-product. If no grading IDs are given, all six presets are used.
@@ -493,7 +504,7 @@ Quote the pattern to prevent shell glob expansion. Patterns that match nothing e
 `--arws-enhance [FILES...]` (`-e`) converts individual ARW files to high-quality enhanced JPGs without stacking or grading. Defaults to all ARWs under `--dir`.
 
 `--cleanup` (`-C`) removes all z-tier subfolders (`z6/`, `z25/`, `z100/`) inside every stack directory, and the flat `variants/` folder at the shoot root.
-Original ARW and JPG source files, and the `out_full/`/`out_web/` export folders, are untouched.
+Original ARW and JPG source files, and the `out-{BBBB}/` export folders, are untouched.
 Run this after generation is complete and you no longer need to re-run discovery.
 
 ## Output structure
@@ -511,16 +522,16 @@ shoot/
 ├── 20260416095559-m4azzz-2126-stack/     # One folder per stack
 │   ├── 20260416095559-m4azzz-2126-a.arw  # Per-frame source files stay in root
 │   ├── 20260416095559-m4azzz-2126-a-z25.tif  # Per-frame raw-converted TIF
-│   └── z25/                             # Discovery outputs: intermediates + variants + collage; removed by -C
+│   └── z25/                              # Discovery outputs: intermediates + variants + collage; removed by -C
 │       ├── *-z25-aligned0000.tif
 │       ├── *-z25-sel4.tif
 │       ├── *-z25-sel4-fatc.jpg
 │       ├── 20260416095559-m4azzz-2126-z25-sel3-fatc-dvi1.jpg
 │       └── 20260416095559-m4azzz-2126-stack-collage.jpg
-├── out_full/                             # Full-quality finals (from --generate)
+├── out-7952/                             # Full-res finals (from --generate; BBBB = actual long side)
 │   └── 20260416095559-m4azzz-2126-z100-sel3-fatc-dvi2.jpg
-└── out_web/                              # Web-ready finals
-    └── 20260416095559-m4azzz-2126-z100-sel3-fatc-dvi2-web.jpg
+└── out-2048/                             # Resized copies (from --generate --resolution 2048)
+    └── 20260416095559-m4azzz-2126-z100-sel3-fatc-dvi2.jpg
 ```
 
 ## Usage example (actually used on 2026-04-22)
@@ -533,8 +544,8 @@ ppsp -c
 ppsp -P
 # Now we have clearly organized stacks of the photos we are really interested in.
 # Create discovery variants for the processing chain combinations that will surely include the best versions for each photo in this photoshoot (what is best for a photo depends on lighting and other photo-specific circumstances)
-ppsp -DV 'sel4,r02p,fatd,kimd,m06p,neut,warm,deno,dvi1,dvi2' -z z6
-# Now we have 30 variants for each stack. Find the best enfuse + tone-mapping combo by comparing the denoised versions:
+ppsp -DV 'sel4,r02p,fatd,kimd,m06p,neut,deno,dvi1,dvi2' -z z6
+# Now we have 24 variants for each stack. Find the best enfuse + tone-mapping combo by comparing the denoised versions:
 eog variants/*-deno.jpg
 
 # Generate photos at z25 with one enfuse and one color-grading preset
@@ -571,7 +582,7 @@ For a deep-dive into the underlying tools and the reasoning behind ppsp's built-
 - Image alignment with `align_image_stack` — feature detection, HDR vs focus-stack modes
 - Exposure fusion with `enfuse` — Laplacian pyramid, weight functions, all built-in variant IDs
 - Tone-mapping with `luminance-hdr-cli` — every supported operator, parameter guide, when to use each one
-- Color grading with ImageMagick — S-curve contrast, sharpening, the six built-in grading presets
+- Color grading with ImageMagick — S-curve contrast, proportional brightness scaling, the five built-in grading presets
 - Photography-context guide — which operator combinations work best for each shot type
 
 ## Related projects
@@ -615,4 +626,18 @@ For professional context, these are the "commercial" competitors that ppsp is de
 | **Aurora HDR** | Win / Mac | AI Automation | Automatic "look" generation. | `ppsp` provides more granular control over the math (mu, sigma, etc.). |
 | **LrEnfuse** | Plugin | Adobe Bridge | Bringing Enfuse into Lightroom. | `ppsp` removes the dependency on expensive Adobe subscriptions. |
 
+### 4. Novel AI-powered tools
 
+The following tabulates novel image processing or enhancement tools that leverage AI models:
+
+| Tool Name | Type | Key AI Capability | Best Use Case |
+| :--- | :--- | :--- | :--- |
+| **Auto-Enhance.ai** | Online | **Sky Replacement & Relighting** | Specifically built for real estate. It detects windows and fixes "blue" casts automatically. |
+| **Luminar Neo** | Local / Hybrid | **Relight AI & GenErase** | Uses depth-mapping to adjust lighting in 3D space. Excellent for brightening dark corners naturally. |
+| **Topaz Photo AI** | Local | **Sharpen & Denoise** | The gold standard for fixing slight motion blur or sensor noise without losing texture. |
+| **Adobe Lightroom (AI)** | Cloud / Local | **Adaptive Presets & Denoise** | Its "Enhance" feature uses AI to demosaic RAWs better than standard algorithms. |
+| **Photoroom** | Online / App | **Batch Background/Lighting** | Uses semantic segmentation to separate furniture from walls for localized lighting fixes. |
+| **VanceAI** | Online | **HDR Upscaling** | Good for taking "flat" fused images and adding "AI Retouch" to boost local contrast intelligently. |
+| **BeFunky AI** | Online | **Enhancer DLX** | A one-click solution that balances exposure and saturation using neural networks. |
+| **Magnific.ai** | Online | **Generative Upscaling** | Can take a lower-res merge and "hallucinate" high-end detail (use with caution in real estate). |
+| **Google Photos (Magic Editor)** | Online | **Object Erasure & Lighting** | Increasingly powerful for removing "distractions" like stray power cords or trash bins. |

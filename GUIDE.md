@@ -322,9 +322,11 @@ Compared to linear `-brightness-contrast`, the sigmoidal operator is safer becau
 
 Recommended range for interiors: `3–5, 45–50%`.
 
-#### `-brightness-contrast AxB`
+#### `-evaluate multiply X`
 
-Linear global brightness (A) and contrast (B) adjustment. Less sophisticated than sigmoidal but fast and predictable. Used in `brig` and `dvi*` presets to apply a mild overall exposure lift after the S-curve.
+Scales every pixel value by factor X (e.g. `1.10` = +10 % exposure). A proportional lift: shadows stay proportionally darker, highlights scale cleanly, and the tonal relationships established by `-sigmoidal-contrast` are preserved. Used in `brig`, `deno`, and `dvi*` presets to apply a mild overall exposure lift after the S-curve without fighting the S-curve's contrast.
+
+> **Why not `-brightness-contrast`?** The brightness-contrast operator's contrast component compresses the global tonal range — a negative value partially cancels the S-curve added by `-sigmoidal-contrast`. Using `-evaluate multiply` for the lift, and leaving contrast adjustment entirely to the sigmoidal, gives cleaner shadow separation and avoids muddy midtones.
 
 #### `-modulate B,S,H`
 
@@ -349,17 +351,17 @@ Removes isolated bright or dark pixels (impulse noise). Used in `deno`, `dvi1`, 
 
 ### ppsp's built-in grading presets
 
-The six grading IDs form a progression from neutral to vivid. See [README.md § Color-grading presets](README.md#color-grading-presets) for the full parameter table.
+The five grading IDs form a progression from neutral to vivid. See [README.md § Color-grading presets](README.md#color-grading-presets) for the full parameter table.
 
 | ID | Intent | When to use |
 |---|---|---|
 | `neut` | Minimal: colour space + mild sharpening only | When the TMO output already looks polished |
-| `warm` | Warm colour shift + blue desaturation | Cold-light correction; window-facing rooms |
 | `brig` | Bright and vivid, gentle S-curve | Standard AirBnB listing look |
 | `deno` | Denoised + moderate punch | High-ISO shots; older sensors |
 | `dvi1` | Punchy and vivid, strong saturation | Rooms that need to stand out in a listing grid |
-| `dv1w` | `dvi1` punch with warm colour shift | Strong rooms that also need colour warmth |
 | `dvi2` | Very vivid, high local contrast | Hero shots where maximum impact matters |
+
+Colour-temperature shifts (formerly `warm` / `dv1w`) are now handled by CT presets — pair any grading with `ctw5` for a gentle warm shift (e.g. `neut+ctw5`, `dvi1+ctw5`). See [README.md § Color-temperature (CT) presets](README.md#color-temperature-ct-presets).
 
 ---
 
@@ -373,7 +375,7 @@ The six grading IDs form a progression from neutral to vivid. See [README.md § 
 |---|---|
 | General interior | `sel4-m08n-brig` |
 | White walls, luxury finish | `sel4-kimn-brig` |
-| Room with strong window light | `sel3-dras-warm` |
+| Room with strong window light | `sel3-dras-neut-ctw5` |
 | Budget property, needs flattering lift | `sel4-m08n-dvi1` |
 | High-ISO / dim interior | `sel4-m08n-deno` |
 
@@ -396,8 +398,8 @@ Avoid Fattal (`fatc`, `fatd`) on plain white-wall rooms. The gradient enhancemen
 | Scenario | Recommended chain |
 |---|---|
 | Blue-hour exterior | `natu-dras-neut` |
-| Evening cityscape | `natu-r02p-warm` |
-| Strong sunset | `sel3-dras-warm` |
+| Evening cityscape | `natu-r02p-neut-ctw5` |
+| Strong sunset | `sel3-dras-neut-ctw5` |
 
 Drago's logarithmic bias contains lamp bloom naturally, which is why it dominates blue-hour work. Reinhard '02 is a safe fallback when Drago feels too "painterly."
 
@@ -427,7 +429,7 @@ Use this as a starting point for `--variants` Mode 3 chain specs or when manuall
 |---|---|---|---|---|
 | Bright interior, neutral walls | `sel4` | `m08n` | `brig` | `sel4-m08n-brig` |
 | Bright interior, luxury finish | `sel4` | `kimn` | `brig` | `sel4-kimn-brig` |
-| Room with strong window light | `sel3` | `dras` | `warm` | `sel3-dras-warm` |
+| Room with strong window light | `sel3` | `dras` | `neut` + `ctw5` | `sel3-dras-neut-ctw5` |
 | Kitchen / wood / stone texture | `sel4` | `m06p` | `dvi1` | `sel4-m06p-dvi1` |
 | Dark interior, high ISO | `sel4` | `m08n` | `deno` | `sel4-m08n-deno` |
 | Blue-hour / exterior | `natu` | `dras` | `neut` | `natu-dras-neut` |

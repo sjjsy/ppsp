@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Callable, List, Optional, Set, TypeVar
 
-from .export import export_variants
+from .export import export_variants as _export_variants
 from .models import ChainSpec, StackType, parse_chain
 from .processing import (
     apply_grading,
@@ -398,6 +398,7 @@ def cmd_discover(
     tokens = [t.strip() for t in variants_arg.split(",") if t.strip()]
     chain_specs: List[ChainSpec] = []
     grading_ids: List[str] = []
+    ct_ids: List[str] = []
     if any("-" in t or _is_chain_pattern(t) for t in tokens):
         # Mode 3: exact chain specs or regex patterns (no z-tier; z_tier is applied at processing time)
         for t in tokens:
@@ -416,7 +417,7 @@ def cmd_discover(
         tmo_ids: List[str] = []
     else:
         # Mode 1 (preset) or Mode 2 (bare IDs)
-        enfuse_ids, tmo_ids, grading_ids = expand_variants(variants_arg)
+        enfuse_ids, tmo_ids, grading_ids, ct_ids = expand_variants(variants_arg)
 
     stacks_filter = _resolve_stack_specs(stacks_specs or [], source)
     if stacks_filter is not None:
@@ -465,6 +466,7 @@ def cmd_discover(
             quality=quality,
             source_photos=source_photos,
             grading_ids=grading_ids if grading_ids else None,
+            ct_ids=ct_ids if ct_ids else None,
             chain_specs=chain_specs,
             redo=redo,
         )
@@ -699,7 +701,8 @@ def cmd_generate(
     source: Path,
     variants_arg: str = "variants/",
     z_tier: str = "z100",
-    quality: int = 95,
+    quality: int = 80,
+    resolution: Optional[int] = None,
     redo: bool = False,
     stacks_specs: Optional[List[str]] = None,
 ) -> None:
@@ -712,8 +715,6 @@ def cmd_generate(
 
     raw_converter = get_raw_converter()
     tmo_ids = list(TMO_VARIANTS.keys())
-    out_full = source / "out_full"
-    out_web = source / "out_web"
 
     new_count = 0
     skip_count = 0
@@ -722,18 +723,19 @@ def cmd_generate(
         if spec is None:
             logging.warning("Cannot parse chain from %s, skipping", filename)
             continue
-        generated = _generate_one(filename, spec, source, raw_converter, quality, out_full, out_web, redo)
+        generated = _generate_one(filename, spec, source, raw_converter, quality, resolution, redo)
         if generated:
             new_count += 1
         else:
             skip_count += 1
 
+    out_desc = f"out{resolution}/" if resolution else "outBBBB/"
     if skip_count > 0 and new_count == 0:
-        logging.info("All %d requested variants already exist in out_full/", skip_count)
+        logging.info("All %d requested variants already exist in %s", skip_count, out_desc)
     elif skip_count > 0:
         logging.info("Generated %d new variants; %d already existed", new_count, skip_count)
     else:
-        logging.info("Generate complete — %d variants", new_count)
+        logging.info("Generate complete — %d variants → %s", new_count, out_desc)
 
 
 def _resolve_variants_for_generate(
@@ -816,7 +818,7 @@ def _resolve_variants_for_generate(
         return filenames
 
     # Mode 1/2: preset level or comma-separated IDs → cross-product
-    enfuse_ids, tmo_ids, grading_ids = expand_variants(variants_arg)
+    enfuse_ids, tmo_ids, grading_ids, _ct_ids = expand_variants(variants_arg)
     if not grading_ids:
         grading_ids = list(GRADING_PRESETS.keys())
 
@@ -845,13 +847,16 @@ def _generate_one(
     source: Path,
     raw_converter: Optional[str],
     quality: int,
-    out_full: Path,
-    out_web: Path,
+    resolution: Optional[int],
     redo: bool,
 ) -> bool:
     """Execute chain steps for one target filename. Returns True if newly generated."""
-    if (out_full / Path(filename).name).exists() and not redo:
-        return False
+    fname = Path(filename).name
+    # Skip if the full-res output already exists in any out-BBBB/ folder
+    if not redo:
+        for d in source.glob("out-*/"):
+            if (d / fname).exists():
+                return False
 
     # Derive stack dir from filename convention
     # Filename: YYYYMMDDHHMMSS-CCCxxx-NNNN-chain.jpg
@@ -926,7 +931,7 @@ def _generate_one(
     # Step 5: grading — staged final JPG also goes into z_dir
     out_name = Path(filename).name
     final_jpg = z_dir / out_name
-    ok = apply_grading(grading_src, final_jpg, spec.grading_id, quality, redo=redo)
+    ok = apply_grading(grading_src, final_jpg, spec.grading_id, quality, redo=redo, ct_id=spec.ct_id)
     if not ok:
         logging.error("Grading failed for %s", filename)
         return False
@@ -936,8 +941,8 @@ def _generate_one(
     from .processing import _copy_exif
     _copy_exif(mid_arw, final_jpg)
 
-    # Step 6: export
-    export_variants([final_jpg], source, redo=redo)
+    # Step 6: export to out-BBBB/ folder(s)
+    _export_variants([final_jpg], source, resolution=resolution, quality=quality, redo=redo)
     logging.info("Generated: %s", filename)
     return True
 
@@ -1038,8 +1043,7 @@ def _detect_workflow_progress(source: Path) -> dict:
     if variants_dir.exists() and list(variants_dir.glob("*.jpg")):
         state["discover"] = True
 
-    out_full_dir = source / "out_full"
-    if out_full_dir.exists() and list(out_full_dir.glob("*.jpg")):
+    if any((source / d).glob("*.jpg") for d in source.glob("out*/") if d.is_dir()):
         state["generate"] = True
 
     # Supplement with log evidence (look for completion markers)
@@ -1076,6 +1080,7 @@ def run_full_workflow(
     source: Path,
     gap: float = 30.0,
     quality: int = 80,
+    resolution: Optional[int] = None,
     batch: bool = False,
     verbose: bool = False,
     redo: bool = False,
@@ -1177,13 +1182,13 @@ def run_full_workflow(
         if selection_method == "csv":
             gen_csv = source / _GENERATE_CSV
             if gen_csv.exists():
-                cmd_generate(source, variants_arg=str(gen_csv), z_tier=generate_z_tier, quality=95, redo=redo)
+                cmd_generate(source, variants_arg=str(gen_csv), z_tier=generate_z_tier, quality=quality, resolution=resolution, redo=redo)
             else:
                 logging.warning("ppsp_generate.csv not found; skipping generate step")
         else:
             variants_dir = source / "variants"
             if variants_dir.exists():
-                cmd_generate(source, variants_arg=str(variants_dir), z_tier=generate_z_tier, quality=95, redo=redo)
+                cmd_generate(source, variants_arg=str(variants_dir), z_tier=generate_z_tier, quality=quality, resolution=resolution, redo=redo)
             else:
                 logging.warning("variants/ folder not found; skipping generate step")
 

@@ -52,20 +52,16 @@ class ChainSpec:
     enfuse_id: str
     tmo_id: Optional[str]
     grading_id: str
-    web: bool = False
+    ct_id: Optional[str] = None
 
 
 # Pattern: YYYYMMDDHHMMSS-CCCxxx-NNNN-<chain>.<ext>
-# chain = z-tier + enfuse-id + optional-tmo-id + grading-id + optional -web
-_CHAIN_RE = re.compile(
-    r"^(?P<z>z(?:100|25|6))-(?P<enfuse>[a-z0-9]+)-(?P<rest>.+)$"
-)
-
+# chain = z-tier + enfuse-id + optional-tmo-id + grading-id + optional-ct-id + optional q/r segments
 _KNOWN_TMOS = {"m08d", "m08n", "m08c", "m06d", "m06p", "drad", "dras", "r02d", "r02p", "fatd", "fatn", "fatc", "ferr", "ferw", "kimd", "kimn"}
-_KNOWN_GRADINGS = {"neut", "warm", "brig", "deno", "dvi1", "dvi2"}
+_KNOWN_CTS = {"ctw4", "ctw5", "ctd6", "ctc7", "ctc9"}
 
 
-def parse_chain(filename: str, tmo_ids: Optional[List[str]] = None) -> Optional[ChainSpec]:
+def parse_chain(filename: str, tmo_ids: Optional[List[str]] = None, ct_ids: Optional[List[str]] = None) -> Optional[ChainSpec]:
     """Parse a variant chain string from a filename — see README.md § Naming scheme.
 
     Returns None if the filename has no chain (i.e. it is an original camera file).
@@ -95,6 +91,7 @@ def parse_chain(filename: str, tmo_ids: Optional[List[str]] = None) -> Optional[
     enfuse_id = chain_parts[1]
 
     known_tmos = set(tmo_ids) if tmo_ids else _KNOWN_TMOS
+    known_cts = set(ct_ids) if ct_ids else _KNOWN_CTS
 
     # Determine if there is a TMO id
     if len(chain_parts) >= 4 and chain_parts[2] in known_tmos:
@@ -107,22 +104,25 @@ def parse_chain(filename: str, tmo_ids: Optional[List[str]] = None) -> Optional[
     if grading_part_idx >= len(chain_parts):
         return None
 
-    web = False
     grading_raw = chain_parts[grading_part_idx]
     if grading_raw == "web":
         return None
     grading_id = grading_raw
 
-    # Check for trailing -web
-    if grading_part_idx + 1 < len(chain_parts) and chain_parts[grading_part_idx + 1] == "web":
-        web = True
+    # Parse optional trailing segments: ct, q<int>, r<int> (in any order)
+    ct_id: Optional[str] = None
+    for part in chain_parts[grading_part_idx + 1:]:
+        if part in known_cts:
+            ct_id = part
+        # q<int> and r<int> segments are recorded in the filename but not stored in ChainSpec;
+        # they affect only the export step and are resolved from the filename at generate time.
 
     return ChainSpec(
         z_tier=z_tier,
         enfuse_id=enfuse_id,
         tmo_id=tmo_id,
         grading_id=grading_id,
-        web=web,
+        ct_id=ct_id,
     )
 
 
@@ -132,6 +132,6 @@ def compose_chain(spec: ChainSpec) -> str:
     if spec.tmo_id:
         parts.append(spec.tmo_id)
     parts.append(spec.grading_id)
-    if spec.web:
-        parts.append("web")
+    if spec.ct_id:
+        parts.append(spec.ct_id)
     return "-".join(parts)

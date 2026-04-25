@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from ppsp.variants import (
+    CT_PRESETS,
     ENFUSE_VARIANTS,
     GRADING_PRESETS,
     TMO_VARIANTS,
@@ -17,54 +18,62 @@ from ppsp.variants import (
 
 
 def test_expand_variants_some():
-    enfuse_ids, tmo_ids, grading_ids = expand_variants("some")
+    enfuse_ids, tmo_ids, grading_ids, ct_ids = expand_variants("some")
     assert set(enfuse_ids) == {"sel4"}
     assert set(tmo_ids) == {"m08n", "fatn"}
     assert set(grading_ids) == {"neut", "dvi1"}
+    assert ct_ids == []
 
 
 def test_expand_variants_many():
-    enfuse_ids, tmo_ids, grading_ids = expand_variants("many")
+    enfuse_ids, tmo_ids, grading_ids, ct_ids = expand_variants("many")
     assert set(enfuse_ids) == {"natu", "sel3", "sel4"}
     assert set(tmo_ids) == {"m08n", "fatn"}
     assert set(grading_ids) == {"neut", "dvi1"}
+    assert ct_ids == ["ctw5"]
 
 
 def test_expand_variants_lots():
-    enfuse_ids, tmo_ids, grading_ids = expand_variants("lots")
+    enfuse_ids, tmo_ids, grading_ids, ct_ids = expand_variants("lots")
     assert set(enfuse_ids) == {"natu", "sel3", "sel4", "sel6", "cont"}
     assert set(tmo_ids) == {"m08n", "m08c", "m06p", "r02p", "dras", "fatc"}
-    assert len(grading_ids) == 5
+    assert len(grading_ids) == 4
     assert "deno" not in grading_ids
+    assert "warm" not in grading_ids
+    assert "dv1w" not in grading_ids
+    assert ct_ids == ["ctw5"]
 
 
 def test_expand_variants_all():
-    enfuse_ids, tmo_ids, grading_ids = expand_variants("all")
+    enfuse_ids, tmo_ids, grading_ids, ct_ids = expand_variants("all")
     assert set(enfuse_ids) == set(ENFUSE_VARIANTS.keys())
     assert set(tmo_ids) == set(TMO_VARIANTS.keys())
     assert set(grading_ids) == set(GRADING_PRESETS.keys())
+    assert set(ct_ids) == set(CT_PRESETS.keys())
     # KimKautz must be present in the all level
     assert "kimd" in tmo_ids
     assert "kimn" in tmo_ids
 
 
 def test_expand_variants_custom_list_with_grading():
-    enfuse_ids, tmo_ids, grading_ids = expand_variants("natu,sel3,fatc,m06p,dvi1")
+    enfuse_ids, tmo_ids, grading_ids, ct_ids = expand_variants("natu,sel3,fatc,m06p,dvi1")
     assert set(enfuse_ids) == {"natu", "sel3"}
     assert set(tmo_ids) == {"fatc", "m06p"}
     assert set(grading_ids) == {"dvi1"}
+    assert ct_ids == []
 
 
 def test_expand_variants_custom_list_no_grading():
     """When no grading IDs are given, grading_ids is empty — callers fall back to all presets."""
-    enfuse_ids, tmo_ids, grading_ids = expand_variants("natu,sel3,fatc,m06p")
+    enfuse_ids, tmo_ids, grading_ids, ct_ids = expand_variants("natu,sel3,fatc,m06p")
     assert set(enfuse_ids) == {"natu", "sel3"}
     assert set(tmo_ids) == {"fatc", "m06p"}
     assert grading_ids == []
+    assert ct_ids == []
 
 
 def test_expand_variants_unknown_ignored():
-    enfuse_ids, tmo_ids, grading_ids = expand_variants("natu,unknownXXX,fatc")
+    enfuse_ids, tmo_ids, grading_ids, ct_ids = expand_variants("natu,unknownXXX,fatc")
     assert "unknownXXX" not in enfuse_ids
     assert "unknownXXX" not in tmo_ids
     assert "unknownXXX" not in grading_ids
@@ -74,10 +83,11 @@ def test_expand_variants_unknown_ignored():
 
 def test_expand_variants_single_grading_two_variants():
     """sel3,fatc,m06p,dvi1 → enfuse:[sel3] tmo:[fatc,m06p] grading:[dvi1] → 2 TMO variants."""
-    enfuse_ids, tmo_ids, grading_ids = expand_variants("sel3,fatc,m06p,dvi1")
+    enfuse_ids, tmo_ids, grading_ids, ct_ids = expand_variants("sel3,fatc,m06p,dvi1")
     assert enfuse_ids == ["sel3"]
     assert set(tmo_ids) == {"fatc", "m06p"}
     assert grading_ids == ["dvi1"]
+    assert ct_ids == []
     # 1 enfuse × 2 TMO × 1 grading = 2 TMO variants, plus 1 enfuse-only variant
 
 
@@ -121,12 +131,27 @@ def test_parse_chain_without_tmo():
     assert spec.grading_id == "neut"
 
 
-def test_parse_chain_natu_m06p_warm():
-    spec = parse_variant_chain("natu-m06p-warm")
+def test_parse_chain_natu_m06p_dvi1():
+    spec = parse_variant_chain("natu-m06p-dvi1")
     assert spec is not None
     assert spec.enfuse_id == "natu"
     assert spec.tmo_id == "m06p"
-    assert spec.grading_id == "warm"
+    assert spec.grading_id == "dvi1"
+    assert spec.ct_id is None
+
+
+def test_parse_chain_with_ct():
+    spec = parse_variant_chain("sel4-m08n-dvi1-ctw5")
+    assert spec is not None
+    assert spec.enfuse_id == "sel4"
+    assert spec.tmo_id == "m08n"
+    assert spec.grading_id == "dvi1"
+    assert spec.ct_id == "ctw5"
+
+
+def test_parse_chain_warm_invalid():
+    """warm is no longer a grading preset — should return None."""
+    assert parse_variant_chain("natu-m06p-warm") is None
 
 
 def test_parse_chain_focu_focus_stack():
@@ -289,7 +314,7 @@ def test_expand_chain_pattern_enfuse_only():
 
 
 def test_expand_chain_pattern_all_gradings_wildcard():
-    """z25-sel4-m06p-.* → sel4/m06p with every grading preset."""
+    """z25-sel4-m06p-.* → sel4/m06p with every grading preset × (no CT + each CT)."""
     result = expand_chain_pattern("z25-sel4-m06p-.*")
-    assert len(result) == len(GRADING_PRESETS)
+    assert len(result) == len(GRADING_PRESETS) * (len(CT_PRESETS) + 1)
     assert all(s.startswith("z25-sel4-m06p-") for s in result)

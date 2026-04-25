@@ -1,46 +1,86 @@
-"""Export helpers for out_full/ and out_web/ — see README.md § Output structure."""
+"""Export helpers — outputs go to outBBBB/ folders named by long-side pixel count."""
 
 from __future__ import annotations
 
-import shutil
+import subprocess
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from .util import run_command
 
 
-def copy_to_full(src: Path, out_full_dir: Path, redo: bool = False) -> None:
-    """Copy a variant to out_full/, skipping if it already exists — see README.md § Step 7."""
-    out_full_dir.mkdir(parents=True, exist_ok=True)
-    dst = out_full_dir / src.name
+def _get_long_side(path: Path) -> Optional[int]:
+    """Return the longer dimension of an image in pixels, or None on failure."""
+    try:
+        result = subprocess.run(
+            ["identify", "-format", "%w %h", str(path)],
+            capture_output=True, text=True, check=True,
+        )
+        w, h = map(int, result.stdout.strip().split())
+        return max(w, h)
+    except Exception:
+        return None
+
+
+def export_at_full_res(src: Path, shoot_dir: Path, redo: bool = False) -> Optional[Path]:
+    """Copy src to out-BBBB/ where BBBB is its actual long-side pixel count.
+
+    Returns the destination path, or None if the long side cannot be determined.
+    """
+    long_side = _get_long_side(src)
+    if long_side is None:
+        return None
+    out_dir = shoot_dir / f"out-{long_side}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dst = out_dir / src.name
     if dst.exists() and not redo:
-        return
+        return dst
+    import shutil
     shutil.copy2(src, dst)
+    return dst
 
 
-def make_web_copy(src: Path, out_web_dir: Path, quality: int = 80, redo: bool = False) -> None:
-    """Resize to 2048px max and write a -web copy to out_web/ — see README.md § Step 7."""
-    out_web_dir.mkdir(parents=True, exist_ok=True)
-    stem = src.stem
-    ext = src.suffix
-    web_name = f"{stem}-web{ext}"
-    dst = out_web_dir / web_name
+def export_at_resolution(
+    src: Path,
+    shoot_dir: Path,
+    long_side: int,
+    quality: int = 80,
+    redo: bool = False,
+) -> Path:
+    """Resize src to long_side pixels (shrink-only) and write to out{long_side}/.
+
+    The resized copy has metadata stripped for web delivery.
+    Returns the destination path.
+    """
+    out_dir = shoot_dir / f"out{long_side}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dst = out_dir / src.name
     if dst.exists() and not redo:
-        return
+        return dst
     cmd = [
         "convert", str(src),
-        "-resize", "2048x2048>",
+        "-resize", f"{long_side}x{long_side}>",
         "-quality", str(quality),
         "-strip",
         str(dst),
     ]
-    run_command(cmd, f"web copy {src.name}")
+    run_command(cmd, f"resize {long_side}px {src.name}")
+    return dst
 
 
-def export_variants(variant_paths: List[Path], source_dir: Path, redo: bool = False) -> None:
-    """Copy each variant to out_full/ and produce a web copy in out_web/ — see README.md § Step 7."""
-    out_full = source_dir / "out_full"
-    out_web = source_dir / "out_web"
+def export_variants(
+    variant_paths: List[Path],
+    shoot_dir: Path,
+    resolution: Optional[int] = None,
+    quality: int = 80,
+    redo: bool = False,
+) -> None:
+    """Export each variant to its outBBBB/ folder.
+
+    Always writes the full z-tier copy to out{actual_long_side}/.
+    If resolution is given, also writes a resized copy to out{resolution}/.
+    """
     for vpath in variant_paths:
-        copy_to_full(vpath, out_full, redo=redo)
-        make_web_copy(vpath, out_web, redo=redo)
+        export_at_full_res(vpath, shoot_dir, redo=redo)
+        if resolution is not None:
+            export_at_resolution(vpath, shoot_dir, resolution, quality=quality, redo=redo)

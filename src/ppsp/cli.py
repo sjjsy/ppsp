@@ -54,7 +54,9 @@ def _build_parser():
                         help="Limit scope to matching stacks: full stack name, 4-digit frame number, "
                              "or NNNN-NNNN range (e.g. 2126 or 2126-2150)")
     parser.add_argument("--quality", "-q", type=int, default=80, metavar="INT",
-                        help="JPEG quality for all internal conversions (default: 80)")
+                        help="JPEG quality (default: 80); applies to all conversions including -g output")
+    parser.add_argument("--resolution", "-i", type=int, default=None, metavar="PX",
+                        help="Long-side pixel cap for -g output; adds a resized copy to out-{PX}/ alongside the full-res out-{BBBB}/ (no default = no resize)")
     parser.add_argument("--batch", "-b", action="store_true",
                         help="Skip all interactive prompts")
     parser.add_argument("--verbose", "-v", action="store_true",
@@ -149,7 +151,8 @@ def main(argv=None) -> None:
             source,
             variants_arg=variants,
             z_tier=z_tier,
-            quality=95,
+            quality=args.quality,
+            resolution=args.resolution,
             redo=args.redo,
             stacks_specs=stacks_specs,
         )
@@ -167,6 +170,7 @@ def main(argv=None) -> None:
             source=source,
             gap=args.gap,
             quality=args.quality,
+            resolution=args.resolution,
             batch=args.batch,
             verbose=args.verbose,
             redo=args.redo,
