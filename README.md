@@ -70,10 +70,11 @@ Running `ppsp` without a command flag walks you through all steps interactively.
 | 1 | `--rename [FILES...]` | `-r` | Normalize filenames + write `ppsp_photos.csv` |
 | 2 | `--organize [FILES...]` | `-o` | Group files into per-stack folders |
 | 3 | `--cull` | `-c` | Generate labeled culling previews in `cull/` |
-| 4 | `--prune` | `-P` | Remove stack folders with no surviving preview |
-| 5 | `--discover` | `-D` | Generate variants with annotations for discovery |
-| 6 | *(manual)* | | Browse `variants/`, delete unwanted files or mark CSV |
-| 7 | `--generate` | `-g` | Generate variants for publishing |
+| 4 | *(manual)* | | Browse `cull/`, delete previews for unwanted stacks |
+| 5 | `--prune` | `-P` | Remove stack folders with no surviving preview |
+| 6 | `--discover` | `-D` | Generate variants with annotations for discovery |
+| 7 | *(manual)* | | Browse `variants/`, delete unwanted files or mark CSV |
+| 8 | `--generate` | `-g` | Generate variants for publishing |
 | — | `--cleanup` | `-C` | Remove z-tier discovery folders and `variants/` |
 | — | `--arws-enhance [FILES...]` | `-e` | Convert ARW files to enhanced JPGs |
 
@@ -87,11 +88,12 @@ Running `ppsp` without a command flag walks you through all steps interactively.
 | `--default-model MODEL` | `-m` | — | `-r` | Camera model fallback when missing from EXIF |
 | `--default-lens LENS` | `-l` | — | `-r` | Lens ID fallback when missing from EXIF |
 | `--gap SECONDS` | `-G` | `30` | `-o` | Time gap (s) between shots that triggers a new stack |
-| `--stacks SPEC...` | `-s` | — | `-D`, `-g` | Limit scope to specific stacks: full name, 4-digit frame number, or `NNNN-NNNN` range |
+| `--stacks SPEC...` | `-s` | — | `-D`, `-g` | Limit scope to specific stacks: full name, 4-digit frame number, `NNNN-NNNN` range, or file paths / CSV / TXT (stack names derived from filenames) |
 | `--variants SPEC` | `-V` | see note | `-D`, `-g` | What to discover or generate — see [§ --variants (-V)](#--variants--v); default is `some` for `-D` and `variants/` for `-g` |
-| `--size SIZE` | `-z` | see note | `-D`, `-g` | Resolution tier: `z6`/`quarter`, `z25`/`half`, `z100`/`full` — default is `z25` for `-D` and `z100` for `-g` |
+| `--size SIZE` | `-z` | see note | `-D`, `-g` | Resolution tier: `z2`/`micro`, `z6`/`quarter`, `z25`/`half`, `z100`/`full` — default is `z25` for `-D` and `z100` for `-g` |
 | `--quality INT` | `-q` | `80` | all | JPEG quality for internal conversions |
 | `--redo` | `-R` | off | all | Regenerate outputs even if they already exist |
+| `--viewer VIEWER` | — | `xdg-open` | full workflow | Image viewer opened automatically during cull and variants review steps |
 
 > **Warning:** Three of the uppercase flags are destructive: `-P` deletes stack directories, `-C` removes z-tier and `variants/` folders, `-R` forces regeneration of existing outputs.
 
@@ -207,15 +209,17 @@ ppsp --cull
 The representative image is chosen in this priority order: a JPG at EV 0 → any JPG → any file at EV 0 (ARW-derived) → middle image of the stack.
 The representatives are resized to 1920×1080 and annotated in the bottom-center: the image number (NNNN) in large bold, and the frame count (`×N`) in smaller text below it.
 
-Review with any image viewer before proceeding:
+### Step 4 — Manual culling
+
+Browse the previews in `cull/` and delete the ones for stacks you do not want to keep. When running interactively, `ppsp` opens the folder automatically with the configured viewer. You can also open it manually:
+
 ```bash
 eog cull/ &
 ```
 
-### Step 4 — Manual culling and prune (`--prune` / `-P`)
+### Step 5 — Prune (`--prune` / `-P`)
 
-Delete the preview files from `cull/` for any stacks you do not want to keep.
-Then run:
+After deleting unwanted previews, run:
 
 ```bash
 ppsp --prune
@@ -225,7 +229,7 @@ This deletes the stack directories that no longer have a corresponding preview i
 
 **WARNING**: If you have no backups, you will lose the culled images!
 
-### Step 5 — Variant discovery (`--discover` / `-D`)
+### Step 6 — Variant discovery (`--discover` / `-D`)
 
 For each surviving stack, convert RAW files at reduced resolution, align the frames, generate the requested variants, annotate each with its full filename, and assemble a collage. Results land in a z-tier subfolder inside each stack directory and are hard-linked into `variants/` for easy browsing.
 
@@ -248,6 +252,7 @@ The z-tier label is encoded in every output filename. For `-g`, the tier is dete
 | `z100` | 100 % | `dcraw` without `-h`; default for `-g` |
 | `z25` | ≈25 % | `dcraw -h`; default for `-D` |
 | `z6` | ≈6.25 % | `dcraw -h` then `mogrify -resize 50%`; selected with `-z z6` |
+| `z2` | ≈1.56 % | same as `z6` then another `mogrify -resize 50%`; fastest discovery |
 
 #### Preset variant levels
 
@@ -309,12 +314,12 @@ Note: The author compared the results with these tone-mapping presets with some 
 
 | Image content | Good TMO presets |
 |---------------|------------------|
-| living room with a somewhat distant large bright window with a little sunshine indoors | fatd, kimd, m06p, r02p |
-| dining room with somewhat distant bright window | fatd, kimd, m06p, m08c, r02p |
+| living room with a somewhat distant large bright window with a little sunshine indoors | fatd, fatn, kimd, m06p, r02p |
+| dining room with somewhat distant bright window | fatd, fatn, kimd, m06p, m08c, r02p |
 | white bathroom with small window in the evening | fatn, kimn, m06p, r02p |
-| bedroom with a large window in shadow | fatd, kimd, r02p |
-| any of the above | r02p |
-| most of the above | fatd, kimd, m06p |
+| bedroom with a large window in shadow | fatd, fatn, kimd, r02p |
+| any of the above | fatn, r02p |
+| most of the above | fatd, fatn, kimd, m06p |
 
 #### Color-grading presets
 
@@ -323,10 +328,11 @@ Applied via ImageMagick `convert` as the final stage after fusion/TMO:
 | ID | Effect | ImageMagick parameters |
 |---|---|---|
 | `neut` | Clean, minimal processing | `-colorspace sRGB -unsharp 0x0.8+0.5+0.05` |
-| `warm` | Subtle warmth, slightly desaturated blue | `-colorspace sRGB -modulate 100,108,97 -unsharp 0x0.8+0.5+0.05` |
+| `warm` | Warm colour shift, desaturated blue channel | `-colorspace sRGB +level-colors black,#fffef5 -channel R -gamma 1.07 -channel G -gamma 1.03 -channel B -gamma 0.95 +channel -despeckle -channel B -gamma 0.96 +channel -modulate 100,105,97 -unsharp 0x0.8+0.5+0.05` |
 | `brig` | Brighter and slightly vivid, gentle sharpening | `-colorspace sRGB -sigmoidal-contrast 3,50% -brightness-contrast 8x-5 -modulate 100,105,100 -unsharp 0x1+0.5+0.05` |
-| `deno` | Denoised, mild brightness and saturation boost | `-colorspace sRGB -despeckle -sigmoidal-contrast 3,50% -brightness-contrast 6x-4 -modulate 100,106,100 -unsharp 0x1.5+1.0+0.05` |
-| `dvi1` | Punchy and vivid, strong saturation | `-colorspace sRGB -despeckle -sigmoidal-contrast 3,50% -brightness-contrast 7x-5 -modulate 100,125,100 -unsharp 0x1+0.8+0.05` |
+| `deno` | Denoised, mild brightness and saturation boost | `-colorspace sRGB -despeckle -sigmoidal-contrast 3,50% -brightness-contrast 6x-4 -modulate 100,105,100 -unsharp 0x1.5+1.0+0.05` |
+| `dvi1` | Punchy and vivid, strong saturation | `-colorspace sRGB -despeckle -sigmoidal-contrast 3,50% -brightness-contrast 7x-5 -modulate 100,112,100 -unsharp 0x1+0.8+0.05` |
+| `dv1w` | Like `dvi1` with warm colour shift | `-colorspace sRGB +level-colors black,#fffef5 -channel R -gamma 1.07 -channel G -gamma 1.03 -channel B -gamma 0.95 +channel -despeckle -sigmoidal-contrast 3,50% -brightness-contrast 7x-5 -modulate 100,112,100 -unsharp 0x1+0.8+0.05` |
 | `dvi2` | Very vivid, high local contrast | `-colorspace sRGB -despeckle -sigmoidal-contrast 4,45% -brightness-contrast 12x-8 -modulate 100,118,100 -unsharp 0x1.2+0.6+0.05` |
 
 #### Output structure after discovery
@@ -357,7 +363,7 @@ shoot/
 
 After all variants for a stack are produced, a single `<stack-name>-collage.jpg` is written into the z-tier subfolder alongside the variants. All tiles (originals first, then variants) are arranged in a grid whose dimensions are chosen to approximate a 16:9 aspect ratio. Each tile is 640 px wide (preserving the source aspect ratio). Each tile is annotated at the bottom center with its full filename stem in large bold. Individual variant JPEGs are also annotated the same way, so you can identify them from any image viewer without relying on filename display.
 
-### Step 6 — Variant selection
+### Step 7 — Variant selection
 
 After discovery, browse the `variants/` folder with any image viewer (e.g. `eog variants/ &`). Two selection methods are available; `ppsp` asks you to choose when running interactively.
 
@@ -382,11 +388,11 @@ ppsp -g
 | Column | Description |
 |---|---|
 | `Filename` | Full-resolution target filename (`z100`) |
-| `Generate` | `-` (skip) or `x` (generate) |
+| `Generate` | empty (skip) or `x` / `+` / `y` / `yes` (generate); `–`, `n`, `no` also accepted as skip |
 
 ```
 Filename	Generate
-20260416095559-m4azzz-2126-z100-sel3-fatc-dvi2.jpg	-
+20260416095559-m4azzz-2126-z100-sel3-fatc-dvi2.jpg	
 20260416095559-m4azzz-2126-z100-sel4-m06p-dvi1.jpg	x
 ```
 
@@ -394,7 +400,7 @@ Filename	Generate
 ppsp -g -V ppsp_generate.csv
 ```
 
-### Step 7 — Generate variants (`--generate` / `-g`)
+### Step 8 — Generate variants (`--generate` / `-g`)
 
 Generates selected variants at full quality for publishing. Outputs land in `out_full/` (quality 95) and `out_web/` (max 2048 px, quality 80, stripped metadata). Any variant already present in `out_full/` is skipped automatically; pass `--redo` to force regeneration. The `-s` flag limits generation to matching stacks.
 
@@ -418,9 +424,12 @@ The `-V` option specifies what variants to run in `-D` (discovery) and `-g` (gen
 
 **File path — directory**: scans for `*.jpg` files; each filename's embedded z-tier is used as-is and overridden by `-z` if specified. Default for `-g` is `variants/`.
 
+**File path — single JPG**: if the path resolves to a single `.jpg` file, only that variant is processed.
+
 ```bash
 ppsp -g                            # reads variants/ (default)
-ppsp -g -V /path/to/my_folder
+ppsp -gV /path/to/my_folder
+ppsp -gV variants/20260416095559-m4azzz-2126-z25-sel4-fatn-dvi1.jpg
 ```
 
 **File path — CSV** (`.csv`): reads rows where `Generate == x`; z-tier from each filename, overridden by `-z`.
@@ -517,12 +526,22 @@ shoot/
 ## Usage example (actually used on 2026-04-22)
 
 ```bash
-ppsp --rename -l L15
-ppsp --organize
-ppsp --cull
-ppsp --prune
-ppsp --discover -V 'sel4,sel5,r02p,fatd,kimd,m06p,deno,dvi1,dvi2' -z z6
-ppsp --generate -z z25
+ppsp -r -l L15
+ppsp -o
+ppsp -c
+# Step 4: ppsp opens cull/ automatically; review and delete unwanted previews
+ppsp -P
+# Now we have clearly organized stacks of the photos we are really interested in.
+# Create discovery variants for the processing chain combinations that will surely include the best versions for each photo in this photoshoot (what is best for a photo depends on lighting and other photo-specific circumstances)
+ppsp -DV 'sel4,r02p,fatd,kimd,m06p,neut,warm,deno,dvi1,dvi2' -z z6
+# Now we have 30 variants for each stack. Find the best enfuse + tone-mapping combo by comparing the denoised versions:
+eog variants/*-deno.jpg
+
+# Generate photos at z25 with one enfuse and one color-grading preset
+ppsp -gV 'sel4,r02p,fatd,fatn,kimd,m06p,deno' -z z25
+# For a specific stack, discover a specific variant
+ppsp -DV sel6-r02p-dvi2 -z z6 -s 2101
+ppsp -gz z25
 ```
 
 ## Development

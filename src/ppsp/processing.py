@@ -48,11 +48,20 @@ def convert_raw_to_tiff(
 ) -> bool:
     """Convert an ARW file to a 16-bit TIFF at the requested z-tier — see README.md § Resolution tiers.
 
-    When z_tier is 'z6', the dcraw -h output (z25 quality) is also preserved as a
-    sibling '_z25.tif' so that a later --half generate can reuse it without re-running dcraw.
+    When z_tier is 'z6', the dcraw -h output (z25 quality) is also preserved as a sibling
+    so that a later generate can reuse it.  z2 builds on z6 (another 50% resize).
     """
     if out_tif.exists() and not redo:
         return True
+
+    if z_tier == "z2":
+        # Produce z6 first (which also saves the z25 sibling), then downscale once more.
+        z6_tif = out_tif.with_name(out_tif.name.replace("-z2.", "-z6.", 1))
+        if not convert_raw_to_tiff(arw, z6_tif, "z6", raw_converter, redo=redo):
+            return False
+        shutil.copy2(z6_tif, out_tif)
+        run_command(["mogrify", "-resize", "50%", str(out_tif)], "mogrify 50% for z2")
+        return out_tif.exists()
 
     half_size = z_tier in ("z25", "z6")
 
@@ -462,10 +471,12 @@ def _run_chain_specs(
             out_name = f"{base}-{z_tier}-{spec.enfuse_id}-{spec.grading_id}.jpg"
 
         out_path = output_dir / out_name
+        newly_created = not out_path.exists() or redo
         ok = apply_grading(grading_src, out_path, spec.grading_id, quality, redo=redo)
         if ok:
-            _copy_exif(mid_photo.path, out_path)
-            annotate_image(out_path)
+            if newly_created:
+                _copy_exif(mid_photo.path, out_path)
+                annotate_image(out_path)
             generated.append(out_name)
 
 
@@ -494,10 +505,12 @@ def _run_focus_variants(
     for grading_id in grading_ids:
         out_name = f"{_base_name(stack_name)}-{z_tier}-focu-{grading_id}.jpg"
         out_path = output_dir / out_name
+        newly_created = not out_path.exists() or redo
         ok = apply_grading(enfuse_tif, out_path, grading_id, quality, redo=redo)
         if ok:
-            _copy_exif(mid_photo.path, out_path)
-            annotate_image(out_path)
+            if newly_created:
+                _copy_exif(mid_photo.path, out_path)
+                annotate_image(out_path)
             generated.append(out_name)
 
 
@@ -527,10 +540,12 @@ def _run_hdr_variants(
         for grading_id in grading_ids:
             out_name = f"{base}-{z_tier}-{enfuse_id}-{grading_id}.jpg"
             out_path = output_dir / out_name
+            newly_created = not out_path.exists() or redo
             ok2 = apply_grading(enfuse_tif, out_path, grading_id, quality, redo=redo)
             if ok2:
-                _copy_exif(mid_photo.path, out_path)
-                annotate_image(out_path)
+                if newly_created:
+                    _copy_exif(mid_photo.path, out_path)
+                    annotate_image(out_path)
                 generated.append(out_name)
 
         # TMO variants
@@ -543,10 +558,12 @@ def _run_hdr_variants(
             for grading_id in grading_ids:
                 out_name = f"{base}-{z_tier}-{enfuse_id}-{tmo_id}-{grading_id}.jpg"
                 out_path = output_dir / out_name
+                newly_created = not out_path.exists() or redo
                 ok4 = apply_grading(tmo_jpg, out_path, grading_id, quality, redo=redo)
                 if ok4:
-                    _copy_exif(mid_photo.path, out_path)
-                    annotate_image(out_path)
+                    if newly_created:
+                        _copy_exif(mid_photo.path, out_path)
+                        annotate_image(out_path)
                     generated.append(out_name)
 
 

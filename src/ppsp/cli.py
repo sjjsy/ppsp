@@ -19,6 +19,7 @@ from .commands import (
 from .util import setup_logging
 
 _SIZE_MAP = {
+    "micro": "z2", "z2": "z2",
     "quarter": "z6", "z6": "z6",
     "half": "z25", "z25": "z25",
     "full": "z100", "z100": "z100",
@@ -75,8 +76,10 @@ def _build_parser():
                            "or directory (default for -D: some; default for -g: variants/)")
     opts.add_argument("--size", "-z", default=None, metavar="SIZE",
                       choices=list(_SIZE_MAP.keys()),
-                      help="Override resolution tier: z6/quarter, z25/half, z100/full "
+                      help="Override resolution tier: z2/micro, z6/quarter, z25/half, z100/full "
                            "(default for -D: z25; default for -g: z100)")
+    opts.add_argument("--viewer", default="xdg-open", metavar="VIEWER",
+                      help="Image viewer app for interactive cull/variants review (default: xdg-open)")
 
     # Command flags
     cmds = parser.add_argument_group("commands")
@@ -172,6 +175,7 @@ def main(argv=None) -> None:
             variants_arg=args.variants if args.variants is not None else "some",
             discover_z_tier=_parse_size(args.size, "z25"),
             generate_z_tier=_parse_size(args.size, "z100"),
+            viewer=args.viewer,
         )
 
 

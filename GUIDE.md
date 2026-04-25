@@ -66,8 +66,9 @@ ppsp trades pixel count for speed during the discovery phase. The z-tier label i
 | Tier | Pixel count | How produced | Typical use |
 |---|---|---|---|
 | `z100` | 100 % | `dcraw` without `-h` | Final `--generate` output |
-| `z25` | ≈ 25 % | `dcraw -h` | Default discovery (`--stacks-process`) |
-| `z6` | ≈ 6.25 % | `dcraw -h` then `mogrify -resize 50%` | Fast discovery (`--stacks-process --fast`) |
+| `z25` | ≈ 25 % | `dcraw -h` | Default discovery |
+| `z6` | ≈ 6.25 % | `dcraw -h` then `mogrify -resize 50%` | Fast discovery |
+| `z2` | ≈ 1.56 % | same as `z6` then another `mogrify -resize 50%` | Fastest discovery; useful on very large shoots |
 
 When `z6` is used, ppsp also saves the `dcraw -h` output as a `z25` sibling TIFF automatically. This means a later `--generate variants/ --half` can regenerate at 25% resolution — reusing the aligned and enfused z25 intermediates — without touching dcraw again.
 
@@ -244,7 +245,9 @@ ppsp presets:
 
 #### Reinhard '02 (`r02*`)
 
-Based on the photographic zone system. Maps scene luminance to display luminance via a key-value-driven sigmoid. Extremely clean and safe — no halos, no saturation shifts — at the cost of less local contrast enhancement.
+Based on the photographic zone system.
+Maps scene luminance to display luminance via a key-value-driven sigmoid.
+Extremely clean and safe — no halos, no saturation shifts — at the cost of less local contrast enhancement.
 
 | Flag | Effect | Range |
 |---|---|---|
@@ -259,7 +262,9 @@ ppsp presets:
 
 #### Fattal (`fat*`)
 
-A gradient-domain operator that works on the logarithm of the luminance gradient rather than on luminance itself. The result is intense local contrast enhancement — images appear almost three-dimensional. The trade-off is that large luminance gradients (window frames, lamp sources) can produce visible halos if `tmoFatBeta` drops below about 0.85.
+A gradient-domain operator that works on the logarithm of the luminance gradient rather than on luminance itself.
+The result is intense local contrast enhancement — images appear almost three-dimensional.
+The trade-off is that large luminance gradients (window frames, lamp sources) can produce visible halos if `tmoFatBeta` drops below about 0.85.
 
 | Flag | Effect | Range |
 |---|---|---|
@@ -349,10 +354,11 @@ The six grading IDs form a progression from neutral to vivid. See [README.md § 
 | ID | Intent | When to use |
 |---|---|---|
 | `neut` | Minimal: colour space + mild sharpening only | When the TMO output already looks polished |
-| `warm` | Subtle warmth + blue desaturation | Cold-light correction; window-facing rooms |
+| `warm` | Warm colour shift + blue desaturation | Cold-light correction; window-facing rooms |
 | `brig` | Bright and vivid, gentle S-curve | Standard AirBnB listing look |
 | `deno` | Denoised + moderate punch | High-ISO shots; older sensors |
 | `dvi1` | Punchy and vivid, strong saturation | Rooms that need to stand out in a listing grid |
+| `dv1w` | `dvi1` punch with warm colour shift | Strong rooms that also need colour warmth |
 | `dvi2` | Very vivid, high local contrast | Hero shots where maximum impact matters |
 
 ---

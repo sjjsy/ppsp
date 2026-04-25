@@ -517,19 +517,19 @@ def _make_minimal_photo(path: Path):
 
 
 def _write_generate_csv(csv_path: Path, generated: List[str], redo: bool) -> None:
-    """Write ppsp_generate.csv with z100 filenames and Generate='-' — see README.md § Step 6."""
+    """Write ppsp_generate.csv with z100 filenames and empty Generate column — see README.md § Step 7."""
     import csv as _csv
 
     existing: dict = {}
     if csv_path.exists() and not redo:
         with open(csv_path, encoding="utf-8", newline="") as fh:
             for row in _csv.DictReader(fh, delimiter="\t"):
-                existing[row.get("Filename", "")] = row.get("Generate", "-")
+                existing[row.get("Filename", "")] = row.get("Generate", "")
 
     rows_out = dict(existing)
     for name in generated:
         z100_name = _to_z100(name)
-        rows_out.setdefault(z100_name, "-")
+        rows_out.setdefault(z100_name, "")
 
     with open(csv_path, "w", encoding="utf-8", newline="") as fh:
         writer = _csv.DictWriter(fh, fieldnames=["Filename", "Generate"], delimiter="\t")
@@ -538,16 +538,79 @@ def _write_generate_csv(csv_path: Path, generated: List[str], redo: bool) -> Non
             writer.writerow({"Filename": filename, "Generate": gen})
 
 
+def _derive_stack_from_filename(filename: str) -> Optional[str]:
+    """Derive stack dir name from a variant filename (strips chain components after NNNN)."""
+    stem = Path(filename).stem
+    parts = stem.split("-")
+    if len(parts) >= 3:
+        return "-".join(parts[:3]) + "-stack"
+    return None
+
+
 def _resolve_stack_specs(specs: List[str], source: Path) -> Optional[Set[str]]:
-    """Resolve --stacks specs to a set of stack dir names; returns None when specs is empty."""
+    """Resolve --stacks specs to a set of stack dir names; returns None when specs is empty.
+
+    Accepted per-token forms:
+      - Full stack name ending in '-stack'
+      - 4-digit frame number (NNNN) or range NNNN-NNNN
+      - File path to a variant JPG (stack name derived from the filename)
+      - Path to a .csv file (Filename column used to derive stack names)
+      - Path to a .txt file (one filename per line used to derive stack names)
+    """
+    import csv as _csv
     import re as _re
     if not specs:
         return None
     result: Set[str] = set()
     for spec in specs:
         spec = spec.strip()
+        if not spec:
+            continue
+
+        p = Path(spec)
+        if not p.is_absolute():
+            p_resolved = source / spec
+        else:
+            p_resolved = p
+
+        # CSV file: derive stack names from Filename column
+        if p_resolved.suffix.lower() == ".csv" and p_resolved.exists():
+            with open(p_resolved, encoding="utf-8", newline="") as fh:
+                for row in _csv.DictReader(fh, delimiter="\t"):
+                    fname = row.get("Filename", "").strip()
+                    sn = _derive_stack_from_filename(fname)
+                    if sn:
+                        result.add(sn)
+            continue
+
+        # TXT file: derive stack names from filenames listed one per line
+        if p_resolved.suffix.lower() == ".txt" and p_resolved.exists():
+            for line in p_resolved.read_text(encoding="utf-8").splitlines():
+                fname = line.strip()
+                if fname:
+                    sn = _derive_stack_from_filename(fname)
+                    if sn:
+                        result.add(sn)
+            continue
+
+        # Existing file (e.g. JPG variant): derive stack name from filename
+        if p_resolved.exists() and p_resolved.is_file():
+            sn = _derive_stack_from_filename(p_resolved.name)
+            if sn:
+                result.add(sn)
+            continue
+
+        # Non-existent path that looks like a variant filename (shell-expanded glob residue)
+        if p.suffix.lower() in (".jpg", ".jpeg", ".tif", ".tiff"):
+            sn = _derive_stack_from_filename(p.name)
+            if sn:
+                result.add(sn)
+            continue
+
+        # Full stack dir name
         if spec.endswith("-stack"):
             result.add(spec)
+        # NNNN-NNNN range
         elif _re.match(r"^\d{1,4}-\d{1,4}$", spec):
             lo, hi = int(spec.split("-")[0]), int(spec.split("-")[1])
             for d in source.iterdir():
@@ -557,6 +620,7 @@ def _resolve_stack_specs(specs: List[str], source: Path) -> Optional[Set[str]]:
                         n = int(parts[2])
                         if lo <= n <= hi:
                             result.add(d.name)
+        # Single frame number
         elif _re.match(r"^\d+$", spec):
             nnnn = spec.zfill(4)
             for d in source.iterdir():
@@ -581,7 +645,7 @@ def _looks_like_chain_spec(s: str) -> bool:
     """Return True if s is a z-tier chain spec (possibly with regex wildcards), not a file path."""
     if "/" in s or "\\" in s:
         return False
-    return bool(re.match(r"^z(100|25|6)-", s))
+    return bool(re.match(r"^z(100|25|6|2)-", s))
 
 
 def _is_chain_pattern(s: str) -> bool:
@@ -613,12 +677,12 @@ def _expand_chain_spec_to_all_stacks(
 
 def _to_ztier(filename: str, z_tier: str) -> str:
     """Replace the z-tier token in a variant filename with the requested tier."""
-    return re.sub(r"-z(100|25|6)-", f"-{z_tier}-", filename, count=1)
+    return re.sub(r"-z(100|25|6|2)-", f"-{z_tier}-", filename, count=1)
 
 
 def _has_ztier(filename: str) -> bool:
-    """Return True if filename contains a z-tier token (-z100-, -z25-, or -z6-)."""
-    return bool(re.search(r"-z(100|25|6)-", filename))
+    """Return True if filename contains a z-tier token (-z100-, -z25-, -z6-, or -z2-)."""
+    return bool(re.search(r"-z(100|25|6|2)-", filename))
 
 
 def _to_z100(filename: str) -> str:
@@ -695,6 +759,8 @@ def _resolve_variants_for_generate(
     if not p.is_absolute():
         p = source / variants_arg
 
+    _YES_VALUES = frozenset({"x", "+", "y", "yes"})
+
     if p.is_dir():
         filenames = []
         for f in sorted(p.glob("*.jpg")):
@@ -705,12 +771,17 @@ def _resolve_variants_for_generate(
             logging.warning("No variant JPGs found in %s", p)
         return filenames
 
+    if p.suffix.lower() in (".jpg", ".jpeg") and p.exists():
+        if _has_ztier(p.name) and (stacks_filter is None or _filename_to_stack_name(p.name) in stacks_filter):
+            return [_to_ztier(p.name, z_tier)]
+        return []
+
     if p.suffix.lower() == ".csv" and p.exists():
         with open(p, encoding="utf-8", newline="") as fh:
             rows = [
                 row["Filename"]
                 for row in _csv.DictReader(fh, delimiter="\t")
-                if row.get("Generate", "").strip().lower() == "x"
+                if row.get("Generate", "").strip().lower() in _YES_VALUES
             ]
         if stacks_filter is not None:
             rows = [f for f in rows if _filename_to_stack_name(f) in stacks_filter]
@@ -729,7 +800,7 @@ def _resolve_variants_for_generate(
         # Mode 3: strip any embedded z-tier from each token, prepend the target z_tier, then expand
         filenames: List[str] = []
         for t in tokens:
-            normalised = re.sub(r"^z(100|25|6)-", "", t)
+            normalised = re.sub(r"^z(100|25|6|2)-", "", t)
             full = f"{z_tier}-{normalised}"
             if _is_chain_pattern(full):
                 for spec_str in expand_chain_pattern(full):
@@ -915,7 +986,7 @@ def cmd_cleanup(source: Path) -> None:
         if not stack_dir.is_dir() or not stack_dir.name.endswith("-stack"):
             continue
         for z_dir in stack_dir.iterdir():
-            if z_dir.is_dir() and z_dir.name in ("z100", "z25", "z6"):
+            if z_dir.is_dir() and z_dir.name in ("z100", "z25", "z6", "z2"):
                 shutil.rmtree(z_dir)
                 removed += 1
 
@@ -932,6 +1003,75 @@ def cmd_cleanup(source: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _detect_workflow_progress(source: Path) -> dict:
+    """Detect completed workflow steps from filesystem state and ppsp.log."""
+    state: dict = {
+        "rename": False,
+        "organize": False,
+        "cull": False,
+        "prune": False,
+        "discover": False,
+        "generate": False,
+    }
+
+    csv_path = source / _PHOTOS_CSV
+    if csv_path.exists():
+        state["rename"] = True
+
+    stack_dirs = [d for d in source.iterdir() if d.is_dir() and d.name.endswith("-stack")]
+    if stack_dirs:
+        state["organize"] = True
+
+    cull_dir = source / "cull"
+    cull_previews = list(cull_dir.glob("*.jpg")) if cull_dir.exists() else []
+    if cull_previews:
+        state["cull"] = True
+
+    # Prune is considered done when every surviving stack has a cull preview.
+    if state["cull"] and stack_dirs:
+        cull_bases = {p.name.split("_count")[0] for p in cull_previews}
+        stack_names = {d.name for d in stack_dirs}
+        if stack_names and stack_names.issubset(cull_bases):
+            state["prune"] = True
+
+    variants_dir = source / "variants"
+    if variants_dir.exists() and list(variants_dir.glob("*.jpg")):
+        state["discover"] = True
+
+    out_full_dir = source / "out_full"
+    if out_full_dir.exists() and list(out_full_dir.glob("*.jpg")):
+        state["generate"] = True
+
+    # Supplement with log evidence (look for completion markers)
+    log_path = source / "ppsp.log"
+    if log_path.exists():
+        try:
+            log_text = log_path.read_text(encoding="utf-8", errors="ignore")
+            if "Stack organization complete" in log_text:
+                state["organize"] = True
+            if "Cull preview:" in log_text:
+                state["cull"] = True
+            if "Prune complete" in log_text and not stack_dirs or state["prune"]:
+                state["prune"] = True
+            if "Variant discovery complete" in log_text:
+                state["discover"] = True
+            if "Generate complete" in log_text or "variants already exist" in log_text:
+                state["generate"] = True
+        except OSError:
+            pass
+
+    return state
+
+
+def _open_viewer(viewer: str, path: Path) -> None:
+    """Open a path in the viewer app non-blocking."""
+    import subprocess as _sp
+    try:
+        _sp.Popen([viewer, str(path)])
+    except OSError as exc:
+        logging.warning("Could not open viewer '%s': %s", viewer, exc)
+
+
 def run_full_workflow(
     source: Path,
     gap: float = 30.0,
@@ -944,6 +1084,7 @@ def run_full_workflow(
     variants_arg: str = "some",
     discover_z_tier: str = "z25",
     generate_z_tier: str = "z100",
+    viewer: str = "xdg-open",
 ) -> None:
     """Run all steps in sequence, prompting between each unless --batch — see DESIGN.md § Workflow."""
 
@@ -955,38 +1096,84 @@ def run_full_workflow(
 
     logging.info("=== Full workflow starting ===")
 
-    if _prompt("Step 1: Rename and catalogue"):
+    # Auto-detect progress so a resumed run can skip already-completed steps.
+    if not batch and not redo:
+        progress = _detect_workflow_progress(source)
+        completed = [k for k, v in progress.items() if v]
+        if completed:
+            logging.info("Progress detected: %s already done.", ", ".join(completed))
+            step_order = ["rename", "organize", "cull", "prune", "discover", "generate"]
+            first_pending = next((s for s in step_order if not progress[s]), None)
+            if first_pending:
+                logging.info("Resuming from: %s", first_pending)
+                # If prune is done but discover is not, offer choice to re-cull or proceed.
+                if progress["prune"] and not progress["discover"]:
+                    ans = input(
+                        "Cull and prune already done. Proceed to variant discovery? "
+                        "[Y/n, or 'r' to re-cull stacks]: "
+                    ).strip().lower()
+                    if ans == "r":
+                        first_pending = "cull"
+                    elif ans == "n":
+                        logging.info("Aborted by user.")
+                        return
+                else:
+                    ans = input(
+                        f"Resume from '{first_pending}'? [Y/n]: "
+                    ).strip().lower()
+                    if ans == "n":
+                        first_pending = None  # run everything
+
+                # Skip completed steps
+                if first_pending is not None:
+                    for step in step_order:
+                        if step == first_pending:
+                            break
+                        progress[f"_skip_{step}"] = True
+        else:
+            progress = {}
+
+        skip = lambda step: progress.get(f"_skip_{step}", False)
+    else:
+        skip = lambda step: False
+
+    if not skip("rename") and _prompt("Step 1: Rename and catalogue"):
         cmd_rename([], source, default_model=default_model, default_lens=default_lens, redo=redo)
 
-    if _prompt("Step 2: Organize stacks"):
+    if not skip("organize") and _prompt("Step 2: Organize stacks"):
         cmd_organize([], source, gap=gap, redo=redo)
 
-    if _prompt("Step 3: Generate culling previews"):
+    if not skip("cull") and _prompt("Step 3: Generate culling previews"):
         cmd_cull(source, quality=quality, redo=redo)
 
-    if not batch:
-        logging.info("Review cull/ with your image viewer, then delete unwanted previews.")
+    if not skip("cull") and not batch:
+        cull_dir = source / "cull"
+        if cull_dir.exists():
+            logging.info("Step 4: Review cull previews, delete unwanted stacks.")
+            _open_viewer(viewer, cull_dir)
         input("Press Enter when culling is done...")
 
-    if _prompt("Step 4: Prune rejected stacks"):
+    if not skip("prune") and _prompt("Step 5: Prune rejected stacks"):
         cmd_prune(source)
 
-    if _prompt("Step 5: Variant discovery"):
+    if not skip("discover") and _prompt("Step 6: Variant discovery"):
         cmd_discover(source, variants_arg=variants_arg, z_tier=discover_z_tier, quality=quality, redo=redo)
 
     selection_method = "folder"
-    if not batch:
+    if not skip("discover") and not batch:
         variants_dir = source / "variants"
         logging.info("")
-        logging.info("Step 6 — Variant selection. Choose a method:")
+        logging.info("Step 7 — Variant selection. Choose a method:")
         logging.info("  1. Folder-based (default): delete unwanted files from %s/", variants_dir)
         logging.info("     then run --generate variants/ (hard-linked to stack z-tier subfolders)")
-        logging.info("  2. CSV-based: edit ppsp_generate.csv, mark keepers with 'x' in Generate column")
+        logging.info("  2. CSV-based: edit ppsp_generate.csv, mark keepers with x/y/+ in Generate column")
+        if variants_dir.exists():
+            _open_viewer(viewer, variants_dir)
         ans = input("Method [1/2, default=1]: ").strip()
         selection_method = "csv" if ans == "2" else "folder"
         input("Press Enter when selection is done...")
 
-    if _prompt("Step 7: Generate selected variants"):
+    if not skip("generate") and _prompt("Step 8: Generate selected variants"):
         if selection_method == "csv":
             gen_csv = source / _GENERATE_CSV
             if gen_csv.exists():

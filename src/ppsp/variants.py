@@ -139,7 +139,16 @@ GRADING_PRESETS: Dict[str, List[str]] = {
     ],
     "warm": [
         "-colorspace", "sRGB",
-        "-modulate", "100,108,97",
+        # for ImageMagic 7:
+        # ~ "-color-temperature", "6000", "4500", # Warm the light (6500K is daylight)
+        # for ImageMagic 6:
+        "+level-colors", "black,#fffef5", # shift the white point to a warmer ivory
+        "-channel", "R", "-gamma", "1.07",
+        "-channel", "G", "-gamma", "1.03",
+        "-channel", "B", "-gamma", "0.95", "+channel",  # reduce blue channel, while increasing red and green
+        "-despeckle",
+        "-channel", "B", "-gamma", "0.96", "+channel",  # reduces blue channel
+        "-modulate", "100,105,97",
         "-unsharp", "0x0.8+0.5+0.05",
     ],
     "brig": [
@@ -154,7 +163,7 @@ GRADING_PRESETS: Dict[str, List[str]] = {
         "-despeckle",
         "-sigmoidal-contrast", "3,50%",
         "-brightness-contrast", "6x-4",
-        "-modulate", "100,106,100",
+        "-modulate", "100,105,100",
         "-unsharp", "0x1.5+1.0+0.05",
     ],
     "dvi1": [
@@ -162,7 +171,22 @@ GRADING_PRESETS: Dict[str, List[str]] = {
         "-despeckle",
         "-sigmoidal-contrast", "3,50%",
         "-brightness-contrast", "7x-5",
-        "-modulate", "100,125,100",
+        "-modulate", "100,112,100",
+        "-unsharp", "0x1+0.8+0.05",
+    ],
+    "dv1w": [
+        "-colorspace", "sRGB",
+        # for ImageMagic 7:
+        # ~ "-color-temperature", "6000", "4500", # Warm the light (6500K is daylight)
+        # for ImageMagic 6:
+        "+level-colors", "black,#fffef5", # shift the white point to a warmer ivory
+        "-channel", "R", "-gamma", "1.07",
+        "-channel", "G", "-gamma", "1.03",
+        "-channel", "B", "-gamma", "0.95", "+channel",  # reduce blue channel, while increasing red and green
+        "-despeckle",
+        "-sigmoidal-contrast", "3,50%",
+        "-brightness-contrast", "7x-5",
+        "-modulate", "100,112,100",
         "-unsharp", "0x1+0.8+0.05",
     ],
     "dvi2": [
@@ -213,13 +237,13 @@ def parse_full_chain_spec(s: str) -> Optional[ChainSpec]:
     """Parse a chain spec that includes an explicit z-tier prefix: 'z25-sel4-ma06-dvi1'.
 
     Returns a ChainSpec with z_tier set, or None if invalid.
-    The z-tier must be one of z100, z25, or z6.
+    The z-tier must be one of z100, z25, z6, or z2.
     """
     parts = s.strip().split("-", 1)
     if len(parts) != 2:
         return None
     z_tier = parts[0]
-    if z_tier not in ("z100", "z25", "z6"):
+    if z_tier not in ("z100", "z25", "z6", "z2"):
         return None
     spec = parse_variant_chain(parts[1])
     if spec is None:
@@ -312,7 +336,7 @@ def expand_variant_chain_pattern(pattern: str) -> List[str]:
 def _all_valid_chain_specs() -> List[str]:
     """Enumerate every valid full chain spec string (z-tier + enfuse + optional TMO + grading)."""
     specs: List[str] = []
-    z_tiers = ["z100", "z25", "z6"]
+    z_tiers = ["z100", "z25", "z6", "z2"]
     for z in z_tiers:
         for s in _all_valid_variant_chains():
             specs.append(f"{z}-{s}")

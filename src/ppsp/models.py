@@ -86,7 +86,7 @@ def parse_chain(filename: str, tmo_ids: Optional[List[str]] = None) -> Optional[
         return None
 
     z_tier = chain_parts[0]
-    if z_tier not in ("z100", "z25", "z6"):
+    if z_tier not in ("z100", "z25", "z6", "z2"):
         return None
 
     if len(chain_parts) < 3:
