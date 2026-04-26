@@ -201,12 +201,12 @@ Add or update a section here when a decision shapes how future code must be writ
 Specs, wireframes, brainstorming, and annotation notes for work currently in progress go in `wip.md`. Content there is not finished or committed to the rest of the documentation.
 
 **Lifecycle:**
-1. Claude writes a spec or plan into `wip.md`.
-2. Review it by editing inline with `TODO`/`FIXME` annotations, then commit:
+1. Person or AI writes a spec or plan into `wip.md`.
+2. Person or AI reviews it by editing inline with `TODO`/`FIXME` annotations, then commits:
    ```
    git add wip.md && git commit -m "Annotate YYYY-MM-DD plan"
    ```
-3. Ask Claude to revise based on the annotations. The diff captures the full review round.
+3. Ask person or AI to revise based on the annotations. The diff captures the full review round.
 4. When the work ships, commit `wip.md` as-is one final time (for the record), then flush it: relevant decisions go into `journal.md` (decisions/context) or `design.md` (architecture), and `wip.md` is emptied for the next topic.
 
 ### When to write to journal.md

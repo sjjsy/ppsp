@@ -31,8 +31,8 @@ there while work is in flight. When a piece of work is done, wip.md is committed
 summarised into journal.md and design.md, and wip.md is emptied for the next topic.
 
 **Session stats:** each entry closes with a Stats table covering wall time,
-commit count and range, git diff summary, and token/cost figures. Wall time
-comes from transcript timestamps. Git numbers come from
+commit count and range, git diff summary, and logged token and estimated cost figures.
+Wall time comes from transcript timestamps. Git numbers come from
 `git diff --stat <first>^..<last>`. Token and cost figures are extracted from
 `~/.claude/projects/*/\*.jsonl` at session end; leave as `—` if unavailable.
 
@@ -49,6 +49,105 @@ comes from transcript timestamps. Git numbers come from
 - `design.md` — architecture decisions with lasting structural significance
 - `journal.md` — session context, conversation-driven decisions, human narrative
 - `wip.md` — active specs and annotations; flushed to the above when work ships
+
+---
+
+## 2026-04-26 (cont.) — Collaboration infrastructure: four-document system, session stats
+
+Continuation of the 07:56 session (same Claude Code JSONL file). The whole session was
+prompted by a question about whether the existing `devlog.md` approach was the best pattern
+for collaborating with an AI coding assistant. It evolved into a thorough rethink of how
+development context is captured and shared — both between sessions and with other people
+joining the project.
+
+The session produced a four-document system, a new active-work file (`wip.md`), automated
+session stats extraction, and a changelog for eventual PyPI publication. All of this is
+"collaboration infrastructure" rather than ppsp pipeline code — intended to make future
+sessions faster and the project more legible to human collaborators.
+
+### Decisions
+
+**Four-document system.** Every development artifact now has a designated home:
+- `git log` is the technical record: what changed in code and why.
+- `design.md` holds architecture decisions with lasting structural significance —
+  constraints, data models, invariants that shape how future code must be written.
+- `journal.md` (this file) is the human narrative: session context, conversation-driven
+  decisions, the reasoning behind choices that won't be obvious from reading the code.
+- `wip.md` is the active-work scratch file: specs, wireframes, and annotation notes
+  while work is in flight. Flushed to the above when work ships.
+
+The key insight driving this split: git commit messages explain *what* and *why* in
+technical terms, but they lose the conversational context — the wrong turns considered
+and rejected, the annotation review round that changed a decision, the rationale behind a
+naming choice. journal.md preserves that layer without duplicating the git record.
+
+**wip.md as the annotation-review home.** Before this session, spec/planning content
+lived in README.md as TODO markers, which cluttered user-facing documentation and made
+it hard to distinguish "design spec under review" from "finished documentation." wip.md
+gives that content a proper home with an explicit lifecycle: write → annotate with
+TODO/FIXME/IDEA/QUESTION inline → commit annotated state → ask for revision → when
+work ships, commit final wip.md state (preserving the review round in git history) then
+flush to journal.md/design.md and empty the file for the next topic.
+
+**Annotation notation: plain inline tags.** Chose plain `TODO`, `FIXME`, `IDEA`,
+`QUESTION` on their own lines — no HTML comments, no bold asterisks. HTML comments are
+invisible in rendered markdown, which defeats the purpose (you want annotations prominent
+in a WIP doc). Plain tags are grep-friendly and work in any text editor's search/highlight
+feature. The four tags cover the meaningful cases: work to do, something broken, a
+suggestion, a decision needed.
+
+**Lowercase documentation filenames.** `DESIGN.md` → `design.md`, `GUIDE.md` →
+`guide.md`. The ALL-CAPS convention is a Unix holdover that made sense when directory
+listings sorted caps before lowercase; modern tooling gives documentation files visual
+distinction through other means. `README.md` stays caps (universally expected; GitHub
+auto-renders it). `CLAUDE.md` stays caps (Claude Code requires that exact filename on
+Linux).
+
+**changelog.md.** Added following the Keep a Changelog / semver conventions, with
+backfilled history: `[0.0.1]` for the initial working implementation, `[0.1.0]` for the
+current PyPI-ready state. A CHANGELOG is distinct from journal.md: it is user-facing
+(what changed that affects someone installing the package), while journal.md is
+developer-facing (how and why the work happened). They don't duplicate each other.
+
+**Stats table in journal entries.** Each entry closes with a Stats table covering
+wall time, git diff summary, and per-model token/cost breakdown. The format is
+deliberately tool-agnostic: one row per AI model used, so entries from Aider, Cursor,
+or other tools can be added alongside Claude's row. This makes it easy to track cost
+and effort across the project's history and compare the scope of different sessions.
+
+**`session_stats.py` at user level.** The script that extracts token stats from Claude
+Code's `.jsonl` transcript files lives at `~/.claude/scripts/session_stats.py`, not
+inside the ppsp repo, because it is useful across all projects. It is paired with a
+`/session-stats` Claude Code slash command at `~/.claude/commands/session-stats.md`.
+At session end: run `/session-stats range <first>..<last>` and the stats table is
+ready to paste into journal.md. All six historical sessions were backfilled using this
+script in the same session it was written.
+
+### Commits
+
+| Hash | Message |
+|---|---|
+| `ce213a7` | Rename devlog.md → journal.md; document collaboration workflow |
+| `0cc72f0` | Add wip.md workflow; create wip.md with GUI/interactive open items |
+| `80e7982` | Rename DESIGN/GUIDE to lowercase; add changelog.md |
+| `1af732d` | Rewrite wip.md notation; add Stats sections to journal entries |
+| `ad2ad59` | Backfill journal Stats with real token/cost data |
+
+`session_stats.py` and `/session-stats` are user-level files (`~/.claude/`), not
+committed to the ppsp repo.
+
+### Stats
+
+| | |
+|---|---|
+| Duration | ~5.0h (07:56 – 12:59 EEST) |
+| Commits | 5 · ce213a7 – ad2ad59 |
+| Files | 18 files changed, 608 insertions(+), 637 deletions(-) |
+| claude-sonnet-4-6 | 13k in · 280k out · 684k cache↑ · 21.8M cache↓ · ~$13.35 |
+| **Total** | **~$13.35** |
+
+Note: token totals cover the full bf2f9f9e session file, which also contains the
+2026-04-26 07:56 bug-fixes work. The two entries cannot be separated at the JSONL level.
 
 ---
 
