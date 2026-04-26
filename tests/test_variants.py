@@ -27,8 +27,8 @@ def test_expand_variants_some():
 
 def test_expand_variants_many():
     enfuse_ids, tmo_ids, grading_ids, ct_ids = expand_variants("many")
-    assert set(enfuse_ids) == {"natu", "sel3", "sel4"}
-    assert set(tmo_ids) == {"m08n", "fatn"}
+    assert set(enfuse_ids) == {"natu", "sel4"}
+    assert set(tmo_ids) == {"m08n", "r02p", "fatn"}
     assert set(grading_ids) == {"neut", "dvi1"}
     assert ct_ids == ["ctw5"]
 
@@ -36,7 +36,7 @@ def test_expand_variants_many():
 def test_expand_variants_lots():
     enfuse_ids, tmo_ids, grading_ids, ct_ids = expand_variants("lots")
     assert set(enfuse_ids) == {"natu", "sel3", "sel4", "sel6", "cont"}
-    assert set(tmo_ids) == {"m08n", "m08c", "m06p", "r02p", "dras", "fatc"}
+    assert set(tmo_ids) == {"m08n", "m08c", "m06p", "r02p", "dras", "fatn", "fatc", "kimn"}
     assert len(grading_ids) == 4
     assert "deno" not in grading_ids
     assert "warm" not in grading_ids
