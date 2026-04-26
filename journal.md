@@ -30,6 +30,20 @@ there while work is in flight. When a piece of work is done, wip.md is committed
 (capturing the annotated state for the record), then flushed: the relevant decisions are
 summarised into journal.md and design.md, and wip.md is emptied for the next topic.
 
+**Session stats:** each entry closes with a Stats table covering wall time,
+commit count and range, git diff summary, and token/cost figures. Wall time
+comes from transcript timestamps. Git numbers come from
+`git diff --stat <first>^..<last>`. Token and cost figures are extracted from
+`~/.claude/projects/*/\*.jsonl` at session end; leave as `—` if unavailable.
+
+| | |
+|---|---|
+| Duration | ~2h (07:56 – 10:00 EEST) |
+| Commits | 4 · a45cfaf – 181f51f |
+| Files | 12 changed · +1916 / −30 |
+| Tokens | — in / — out |
+| Cost | — |
+
 **Relationship to other documents:**
 - `git log` — what changed in code and why, in technical terms
 - `design.md` — architecture decisions with lasting structural significance
@@ -75,6 +89,16 @@ not yet committed. Also a meta-discussion that produced the redesign of devlog.m
 
 `a45cfaf` and `0395460` contain code written in the 2026-04-25 18:37 session; committed here
 after review.
+
+### Stats
+
+| | |
+|---|---|
+| Duration | ~2h (07:56 – ~10:00 EEST) |
+| Commits | 4 · a45cfaf – 181f51f |
+| Files | 12 changed · +1916 / −30 |
+| Tokens | — |
+| Cost | — |
 
 ---
 
@@ -156,6 +180,16 @@ Not yet implemented. Retained here as a design reference; the GUI is early-stage
 session.py, interactive.py, gui.py were written in this session and committed in the
 2026-04-26 07:56 session (`a45cfaf`, `0395460`).
 
+### Stats
+
+| | |
+|---|---|
+| Duration | ~5.5h (18:37 – ~00:05 EEST, next day) |
+| Commits | 2 · 71b3827 – 02aca59 (+ 3 deferred to next session) |
+| Files | 10 changed · +671 / −249 |
+| Tokens | — |
+| Cost | — |
+
 ---
 
 ## 2026-04-24 (time unknown) — Planning: CT chain, q/r suffixes, TMO expansion
@@ -177,6 +211,16 @@ implemented in the 2026-04-25 18:37 session.
 ### Commits
 
 None — implementation in the 2026-04-25 18:37 session.
+
+### Stats
+
+| | |
+|---|---|
+| Duration | unknown (no transcript) |
+| Commits | 0 |
+| Files | — |
+| Tokens | — |
+| Cost | — |
 
 ---
 
@@ -204,6 +248,16 @@ full enumerated space of valid chain strings, and on general CLI output quality.
 | `074718e` | Update text content |
 | `b10e9f1` | Add links to related projects |
 
+### Stats
+
+| | |
+|---|---|
+| Duration | ~unknown (18:40 EEST, end not recorded) |
+| Commits | 5 · 611386b – b10e9f1 |
+| Files | 12 changed · +659 / −955 |
+| Tokens | — |
+| Cost | — |
+
 ---
 
 ## 2026-04-19 19:53 — Development marathon: bug fixes and first feature wave
@@ -226,6 +280,16 @@ preset tables, usability improvements to the interactive workflow, and processin
 | `4ee0b77` | Add several improvements and fixes |
 | `7c4295d` | Add several usability improvements, processing variations and GUIDE.md |
 
+### Stats
+
+| | |
+|---|---|
+| Duration | ~multi-day (19:53 2026-04-19 – 16:44 2026-04-21, with breaks) |
+| Commits | 5 · d353eed – 7c4295d |
+| Files | 24 changed · +4480 / −10 |
+| Tokens | — |
+| Cost | — |
+
 ---
 
 ## 2026-04-19 13:29 — Project initialization
@@ -238,3 +302,13 @@ structure, then iterating to produce the first working implementation.
 | Hash | Message |
 |---|---|
 | `1753f10` | Initial version with todo notes |
+
+### Stats
+
+| | |
+|---|---|
+| Duration | unknown |
+| Commits | 1 · 1753f10 |
+| Files | 1 changed · +577 / −0 |
+| Tokens | — |
+| Cost | — |
