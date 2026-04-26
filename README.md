@@ -584,6 +584,8 @@ ruff check src/
 
 **Test data:** place a small set of Sony ARW + JPG pairs in `test_data/`. Tests requiring real image data are automatically skipped if `test_data/` is absent or empty. The directory is gitignored and not distributed with the package. See [DESIGN.md](DESIGN.md) for the full testing strategy and code architecture.
 
+**Development journal:** [journal.md](journal.md) is a session-by-session narrative log of collaboration and decisions — the human complement to `git log`. Each entry summarises what a working session covered and which commits it produced. Design decisions with lasting architectural significance go in [DESIGN.md](DESIGN.md) instead.
+
 ## Further reading
 
 For a deep-dive into the underlying tools and the reasoning behind ppsp's built-in presets, see **[GUIDE.md](GUIDE.md)**. It covers:

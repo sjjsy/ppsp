@@ -21,12 +21,15 @@ ppsp/
 │   ├── __init__.py
 │   ├── cli.py          # argparse setup and dispatch to cmd_* functions
 │   ├── commands.py     # cmd_* functions, one per pipeline step
-│   ├── models.py       # Photo and Stack dataclasses
+│   ├── models.py       # Photo, Stack, ChainSpec dataclasses; parse_chain()
 │   ├── rename.py       # compute_refined_name and collision-suffix logic
 │   ├── stacking.py     # stack detection and organization
 │   ├── processing.py   # enfuse, TMO, grading, collage assembly
-│   ├── export.py       # out_full / out_web copying and resizing
-│   ├── variants.py     # ENFUSE_VARIANTS, TMO_VARIANTS, GRADING_PRESETS dicts
+│   ├── export.py       # export_at_full_res / export_at_resolution; out-BBBB naming
+│   ├── variants.py     # ENFUSE_VARIANTS, TMO_VARIANTS, GRADING_PRESETS, CT_PRESETS, VARIANT_LEVELS
+│   ├── interactive.py  # run_interactive_discovery(); per-stack review loop
+│   ├── session.py      # SessionState dataclass; load_session() / save_session()
+│   ├── gui.py          # tkinter GUI (early prototype; ppsp --gui / ppsp-gui)
 │   └── util.py         # run_command, setup_logging, get_raw_converter
 ├── tests/
 │   ├── conftest.py           # test_data skip fixture
@@ -37,7 +40,9 @@ ppsp/
 │   └── test_pipeline.py      # integration tests (skipped without test_data/)
 ├── test_data/          # gitignored; local Sony ARW + JPG pairs for integration tests
 ├── pyproject.toml
-├── README.md           # user + technical reference
+├── README.md           # user-facing reference
+├── GUIDE.md            # deep-dive into tools and preset rationale
+├── journal.md          # session-by-session collaboration log (see § Development workflow)
 └── DESIGN.md           # this file
 ```
 
@@ -174,6 +179,34 @@ For each target filename, `cmd_generate` calls `parse_chain` then executes:
 ## Packaging
 
 `pyproject.toml` uses the PEP 621 `[project]` table. Entry point: `ppsp = ppsp.cli:main`. Dev extras: `pytest`, `ruff`. Minimum Python: 3.8 (Ubuntu 20.04 LTS baseline). No data files ship with the package; `test_data/` is gitignored.
+
+## Development workflow
+
+Three files record different aspects of the project's evolution. They are complementary, not redundant:
+
+| Record | What belongs there |
+|---|---|
+| `git log` | What changed in code and why — the technical, authoritative record |
+| `DESIGN.md` | Architecture decisions with lasting structural significance |
+| `journal.md` | Session context, human narrative, conversation-driven decisions |
+
+### When to write to DESIGN.md
+
+Add or update a section here when a decision shapes how future code must be written: a new data model, a constraint that rules out a class of implementations, a non-obvious invariant. Don't duplicate what is already in README.md; reference it by section name instead.
+
+### When to write to journal.md
+
+At the end of every working session. The entry summarises what was done, records decisions that are too contextual or transient to belong in DESIGN.md, and tabulates the resulting commits. See journal.md § How to use this file for the format and annotation workflow.
+
+### Annotation workflow
+
+When Claude writes a plan or spec in journal.md (or anywhere), review it by editing inline with `TODO`/`FIXME` annotations, then commit the annotated version before asking Claude to revise:
+
+```
+git add journal.md && git commit -m "Annotate YYYY-MM-DD plan"
+```
+
+The diff between the annotated commit and the revised one captures the full review round with spatial context — the comment lives next to the thing it responds to.
 
 ## Extensibility
 
