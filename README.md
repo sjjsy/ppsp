@@ -72,9 +72,10 @@ Running `ppsp` without a command flag walks you through all steps interactively.
 | 3 | `--cull` | `-c` | Generate labeled culling previews in `cull/` |
 | 4 | *(manual)* | | Browse `cull/`, delete previews for unwanted stacks |
 | 5 | `--prune` | `-P` | Remove stack folders with no surviving preview |
-| 6 | `--discover` | `-D` | Generate variants with annotations for discovery |
-| 7 | *(manual)* | | Browse `variants/`, delete unwanted files or mark CSV |
-| 8 | `--generate` | `-g` | Generate variants for publishing |
+| 6 | `--name [TITLE_OR_CSV]` | `-n` | Assign human titles to stacks; rename folders and files; write `ppsp_stacks.csv` |
+| 7 | `--discover` | `-D` | Generate variants with annotations for discovery |
+| 8 | *(manual)* | | Browse `variants/`, delete unwanted files or mark CSV |
+| 9 | `--generate` | `-g` | Generate variants for publishing |
 | — | `--cleanup` | `-C` | Remove z-tier discovery folders and `variants/` |
 | — | `--arws-enhance [FILES...]` | `-e` | Convert ARW files to enhanced JPGs |
 
@@ -88,7 +89,7 @@ Running `ppsp` without a command flag walks you through all steps interactively.
 | `--default-model MODEL` | `-m` | — | `-r` | Camera model fallback when missing from EXIF |
 | `--default-lens LENS` | `-l` | — | `-r` | Lens ID fallback when missing from EXIF |
 | `--gap SECONDS` | `-G` | `30` | `-o` | Time gap (s) between shots that triggers a new stack |
-| `--stacks SPEC...` | `-s` | — | `-D`, `-g` | Limit scope to specific stacks: full name, 4-digit frame number, `NNNN-NNNN` range, or file paths / CSV / TXT (stack names derived from filenames) |
+| `--stacks SPEC...` | `-s` | — | `-n`, `-D`, `-g` | Limit scope to specific stacks: full name, 4-digit frame number, `NNNN-NNNN` range, or file paths / CSV / TXT (stack names derived from filenames) |
 | `--variants SPEC` | `-V` | see note | `-D`, `-g` | What to discover or generate — see [§ --variants (-V)](#--variants--v); default is `some` for `-D` and `variants/` for `-g` |
 | `--size SIZE` | `-z` | see note | `-D`, `-g` | Resolution tier: `z2`/`micro`, `z6`/`quarter`, `z25`/`half`, `z100`/`full` — default is `z25` for `-D` and `z100` for `-g` |
 | `--quality INT` | `-q` | `80` | all | JPEG quality for internal conversions |
@@ -150,8 +151,9 @@ The `chain` for original camera files is a single collision-avoidance letter (`a
 | `20260416095559-m4azzz-2126-z100-sel3-fatc-dvi2.jpg` | Full-quality generation |
 | `20260416095559-m4azzz-2126-z100-sel3-fatc-dvi1-ctw5.jpg` | Full-quality with warm CT shift |
 | `20260416095559-m4azzz-2126-z25-focu-neut.jpg` | Focus stack, `focu` variant, `neut` grading |
+| `20260416095559-m4azzz-2126-bbfdtw-z25-sel4-fatc-dvi1.jpg` | Named stack (shorthand `bbfdtw`); title was assigned with `--name` |
 
-Stack folders use the first image's base name with a `-stack` suffix: `20260416095559-m4azzz-2126-stack/`.
+Stack folders use the first image's base name with a `-stack` suffix initially: `20260416095559-m4azzz-2126-stack/`. After running `--name` (step 6), the `-stack` suffix is replaced by a 1–6 character shorthand derived from the title (e.g. `20260416095559-m4azzz-2126-bbfdtw/` for "Bedroom B from the door to the window"). Files inside a named stack get the shorthand inserted after `NNNN`: `NNNN-bbfdtw-a.arw`, `NNNN-bbfdtw-z25-sel4-fatc-dvi1.jpg`.
 
 #### ppsp_photos.csv
 
@@ -230,7 +232,40 @@ This deletes the stack directories that no longer have a corresponding preview i
 
 **WARNING**: If you have no backups, you will lose the culled images!
 
-### Step 6 — Variant discovery (`--discover` / `-D`)
+### Step 6 — Name stacks (`--name` / `-n`)
+
+Assign a human title to each stack, embed it in EXIF/XMP/IPTC metadata via `exiftool`, rename the stack folder and all contained files to include a compact shorthand, and maintain `ppsp_stacks.csv` as the single source of truth for titles and per-stack generate specs.
+
+```bash
+ppsp --name                                                            # interactive: name all stacks in turn
+ppsp -n ppsp_stacks.csv                                                # apply titles from an existing CSV
+ppsp -s 2126 -n "Bedroom B from the door to the window"               # inline title for one stack
+ppsp -s 2126 2150 -n                                                   # interactive only for two stacks
+```
+
+The **shorthand** is derived from the title by taking the first character of each non-filler word (articles, conjunctions), lowercased. Spatial prepositions ("from", "to", "by", etc.) are kept because they carry directional meaning in architectural scene titles. "Bedroom B from the door to the window" → `bbfdtw`.
+
+After renaming, the stack folder changes from `NNNN-stack/` to `NNNN-{shorthand}/` and every file inside gains the shorthand after NNNN: `NNNN-a.arw` → `NNNN-bbfdtw-a.arw`. The `--name` command is idempotent — running it again on already-named stacks with the same title is a no-op; pass `--redo` to force re-application.
+
+#### ppsp_stacks.csv
+
+Created or updated on every `--name` invocation (tab-separated):
+
+| Column | Description |
+|---|---|
+| `StackFolder` | Stack directory name (used to match rows on rename) |
+| `Title` | Human-readable scene title |
+| `Shorthand` | Derived 1–6 character shorthand embedded in filenames |
+| `Photos` | Number of source files in the stack |
+| `GenerateSpecs` | Comma-separated chain specs for `ppsp -g ppsp_stacks.csv` |
+
+Pass `ppsp_stacks.csv` to `--generate` to use per-stack generate specs:
+
+```bash
+ppsp -g ppsp_stacks.csv
+```
+
+### Step 7 — Variant discovery (`--discover` / `-D`)
 
 For each surviving stack, convert RAW files at reduced resolution, align the frames, generate the requested variants, annotate each with its full filename, and assemble a collage. Results land in a z-tier subfolder inside each stack directory and are hard-linked into `variants/` for easy browsing.
 
@@ -362,21 +397,21 @@ Each stack's discovery variants — and all combined intermediates — are writt
 
 ```
 shoot/
-├── 20260416095559-m4azzz-2126-stack/
-│   ├── 20260416095559-m4azzz-2126-a.arw          ← per-frame source files stay in root
-│   ├── 20260416095559-m4azzz-2126-a-z25.tif      ← per-frame raw-converted TIF stays in root
+├── 20260416095559-m4azzz-2126-bbfdtw/             ← named stack (shorthand set by --name in step 6)
+│   ├── 20260416095559-m4azzz-2126-bbfdtw-a.arw   ← per-frame source files stay in root
+│   ├── 20260416095559-m4azzz-2126-bbfdtw-a-z25.tif  ← per-frame raw-converted TIF stays in root
 │   └── z25/                                       ← discovery outputs; removed by -C
-│       ├── 20260416095559-m4azzz-2126-z25-aligned0000.tif
-│       ├── 20260416095559-m4azzz-2126-z25-aligned0001.tif
-│       ├── 20260416095559-m4azzz-2126-z25-sel4.tif
-│       ├── 20260416095559-m4azzz-2126-z25-sel4-fatc.jpg
-│       ├── 20260416095559-m4azzz-2126-z25-sel3-fatc-dvi1.jpg
-│       ├── 20260416095559-m4azzz-2126-z25-sel4-m06p-neut.jpg
+│       ├── 20260416095559-m4azzz-2126-bbfdtw-z25-aligned0000.tif
+│       ├── 20260416095559-m4azzz-2126-bbfdtw-z25-aligned0001.tif
+│       ├── 20260416095559-m4azzz-2126-bbfdtw-z25-sel4.tif
+│       ├── 20260416095559-m4azzz-2126-bbfdtw-z25-sel4-fatc.jpg
+│       ├── 20260416095559-m4azzz-2126-bbfdtw-z25-sel3-fatc-dvi1.jpg
+│       ├── 20260416095559-m4azzz-2126-bbfdtw-z25-sel4-m06p-neut.jpg
 │       ├── ...
-│       └── 20260416095559-m4azzz-2126-stack-collage.jpg
+│       └── 20260416095559-m4azzz-2126-bbfdtw-collage.jpg
 └── variants/                                      ← hard links to variants + collages; removed by -C
-    ├── 20260416095559-m4azzz-2126-z25-sel3-fatc-dvi1.jpg
-    ├── 20260416095559-m4azzz-2126-stack-collage.jpg
+    ├── 20260416095559-m4azzz-2126-bbfdtw-z25-sel3-fatc-dvi1.jpg
+    ├── 20260416095559-m4azzz-2126-bbfdtw-collage.jpg
     └── ...
 ```
 
@@ -384,7 +419,7 @@ shoot/
 
 After all variants for a stack are produced, a single `<stack-name>-collage.jpg` is written into the z-tier subfolder alongside the variants. All tiles (originals first, then variants) are arranged in a grid whose dimensions are chosen to approximate a 16:9 aspect ratio. Each tile is 640 px wide (preserving the source aspect ratio). Each tile is annotated at the bottom center with its full filename stem in large bold. Individual variant JPEGs are also annotated the same way, so you can identify them from any image viewer without relying on filename display.
 
-### Step 7 — Variant selection
+### Step 8 — Variant selection
 
 After discovery, browse the `variants/` folder with any image viewer (e.g. `eog variants/ &`). Two selection methods are available; `ppsp` asks you to choose when running interactively.
 
@@ -421,7 +456,7 @@ Filename	Generate
 ppsp -g -V ppsp_generate.csv
 ```
 
-### Step 8 — Generate variants (`--generate` / `-g`)
+### Step 9 — Generate variants (`--generate` / `-g`)
 
 Generates selected variants at full quality for publishing. Each output is written to `out-{BBBB}/` where `BBBB` is the actual long-side pixel count of the generated image (e.g. `out-7952/` for a z100 Sony a7R IV output). If `--resolution PX` is specified, a second resized copy is also exported to `out-{PX}/` (e.g. `out-2048/`). Any variant already present in any `out-*/` folder is skipped automatically; pass `--redo` to force regeneration. The `-s` flag limits generation to matching stacks.
 
@@ -521,27 +556,28 @@ Run this after generation is complete and you no longer need to re-run discovery
 
 ```
 shoot/
-├── ppsp_photos.csv                       # EXIF catalogue + StackName (tab-separated)
-├── ppsp_generate.csv                     # Variant selection file (tab-separated)
-├── ppsp.log                              # Full run log
-├── cull/                                 # One labeled preview per stack
+├── ppsp_photos.csv                             # EXIF catalogue + StackName (tab-separated)
+├── ppsp_stacks.csv                             # Stack titles, shorthands and per-stack generate specs (from --name)
+├── ppsp_generate.csv                           # Variant selection file (tab-separated)
+├── ppsp.log                                    # Full run log
+├── cull/                                       # One labeled preview per stack
 │   └── 20260416095559-m4azzz-2126-stack_count5.jpg
-├── variants/                             # Hard links to all discovery variants + collages; removed by -C
-│   ├── 20260416095559-m4azzz-2126-z25-sel3-fatc-dvi1.jpg
-│   └── 20260416095559-m4azzz-2126-stack-collage.jpg
-├── 20260416095559-m4azzz-2126-stack/     # One folder per stack
-│   ├── 20260416095559-m4azzz-2126-a.arw  # Per-frame source files stay in root
-│   ├── 20260416095559-m4azzz-2126-a-z25.tif  # Per-frame raw-converted TIF
-│   └── z25/                              # Discovery outputs: intermediates + variants + collage; removed by -C
+├── variants/                                   # Hard links to all discovery variants + collages; removed by -C
+│   ├── 20260416095559-m4azzz-2126-bbfdtw-z25-sel3-fatc-dvi1.jpg
+│   └── 20260416095559-m4azzz-2126-bbfdtw-collage.jpg
+├── 20260416095559-m4azzz-2126-bbfdtw/          # Named stack folder (shorthand replaces -stack after --name)
+│   ├── 20260416095559-m4azzz-2126-bbfdtw-a.arw  # Shorthand inserted after NNNN in all filenames
+│   ├── 20260416095559-m4azzz-2126-bbfdtw-a-z25.tif
+│   └── z25/                                    # Discovery outputs: intermediates + variants + collage; removed by -C
 │       ├── *-z25-aligned0000.tif
 │       ├── *-z25-sel4.tif
-│       ├── *-z25-sel4-fatc.jpg
-│       ├── 20260416095559-m4azzz-2126-z25-sel3-fatc-dvi1.jpg
-│       └── 20260416095559-m4azzz-2126-stack-collage.jpg
-├── out-7952/                             # Full-res finals (from --generate; BBBB = actual long side)
-│   └── 20260416095559-m4azzz-2126-z100-sel3-fatc-dvi2.jpg
-└── out-2048/                             # Resized copies (from --generate --resolution 2048)
-    └── 20260416095559-m4azzz-2126-z100-sel3-fatc-dvi2.jpg
+│       ├── *-bbfdtw-z25-sel4-fatc.jpg
+│       ├── 20260416095559-m4azzz-2126-bbfdtw-z25-sel3-fatc-dvi1.jpg
+│       └── 20260416095559-m4azzz-2126-bbfdtw-collage.jpg
+├── out-7952/                                   # Full-res finals (from --generate; BBBB = actual long side)
+│   └── 20260416095559-m4azzz-2126-bbfdtw-z100-sel3-fatc-dvi2.jpg
+└── out-2048/                                   # Resized copies (from --generate --resolution 2048)
+    └── 20260416095559-m4azzz-2126-bbfdtw-z100-sel3-fatc-dvi2.jpg
 ```
 
 ## Usage example (actually used on 2026-04-22)
@@ -552,7 +588,8 @@ ppsp -o
 ppsp -c
 # Step 4: ppsp opens cull/ automatically; review and delete unwanted previews
 ppsp -P
-# Now we have clearly organized stacks of the photos we are really interested in.
+ppsp -n                                                                # Step 6: name surviving stacks interactively
+# Now we have clearly organized, titled stacks of the photos we are really interested in.
 # Create discovery variants for the processing chain combinations that will surely include the best versions for each photo in this photoshoot (what is best for a photo depends on lighting and other photo-specific circumstances)
 ppsp -DV 'sel4,r02p,fatd,kimd,m06p,neut,deno,dvi1,dvi2' -z z6
 # Now we have 24 variants for each stack. Find the best enfuse + tone-mapping combo by comparing the denoised versions:
