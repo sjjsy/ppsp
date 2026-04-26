@@ -10,6 +10,8 @@ if TYPE_CHECKING:
     from .models import ChainSpec
 
 
+Z_TIERS: Tuple[str, ...] = ("z100", "z25", "z6", "z2")
+
 ENFUSE_VARIANTS: Dict[str, List[str]] = {
     "natu": [
         "--exposure-weight=1.0",
@@ -303,7 +305,7 @@ def parse_full_chain_spec(s: str) -> Optional[ChainSpec]:
     if len(parts) != 2:
         return None
     z_tier = parts[0]
-    if z_tier not in ("z100", "z25", "z6", "z2"):
+    if z_tier not in Z_TIERS:
         return None
     spec = parse_variant_chain(parts[1])
     if spec is None:
@@ -421,8 +423,7 @@ def expand_variant_chain_pattern(pattern: str) -> List[str]:
 def _all_valid_chain_specs() -> List[str]:
     """Enumerate every valid full chain spec string (z-tier + enfuse + optional TMO + grading)."""
     specs: List[str] = []
-    z_tiers = ["z100", "z25", "z6", "z2"]
-    for z in z_tiers:
+    for z in Z_TIERS:
         for s in _all_valid_variant_chains():
             specs.append(f"{z}-{s}")
     return specs

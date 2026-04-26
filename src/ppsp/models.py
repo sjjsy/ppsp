@@ -57,16 +57,10 @@ class ChainSpec:
 
 # Pattern: YYYYMMDDHHMMSS-CCCxxx-NNNN-<chain>.<ext>
 # chain = z-tier + enfuse-id + optional-tmo-id + grading-id + optional-ct-id + optional q/r segments
-_KNOWN_TMOS = {
-    "m08d", "m08n", "m08c", "m08m",
-    "m06d", "m06p", "m06b", "m06s",
-    "drad", "dras", "drab", "dran",
-    "r02d", "r02p", "r02h", "r02m",
-    "fatd", "fatn", "fatc", "fats",
-    "ferr", "ferw",
-    "kimd", "kimn", "kiml", "kimv",
-}
-_KNOWN_CTS = {"ctw4", "ctw5", "ctd6", "ctc7", "ctc9"}
+from .variants import CT_PRESETS, TMO_VARIANTS, Z_TIERS as _Z_TIERS
+
+_KNOWN_TMOS = frozenset(TMO_VARIANTS.keys())
+_KNOWN_CTS = frozenset(CT_PRESETS.keys())
 
 
 def parse_chain(filename: str, tmo_ids: Optional[List[str]] = None, ct_ids: Optional[List[str]] = None) -> Optional[ChainSpec]:
@@ -91,11 +85,11 @@ def parse_chain(filename: str, tmo_ids: Optional[List[str]] = None, ct_ids: Opti
 
     # Optional title shorthand sits between NNNN and the z-tier in named stacks.
     # Skip it so the rest of the parse proceeds normally.
-    if chain_parts[0] not in ("z100", "z25", "z6", "z2") and len(chain_parts) > 1:
+    if chain_parts[0] not in _Z_TIERS and len(chain_parts) > 1:
         chain_parts = chain_parts[1:]
 
     z_tier = chain_parts[0]
-    if z_tier not in ("z100", "z25", "z6", "z2"):
+    if z_tier not in _Z_TIERS:
         return None
 
     if len(chain_parts) < 3:
