@@ -1,15 +1,16 @@
 """Tkinter GUI for ppsp — Work in Progress.
 
-Seven-tab interface matching the ppsp workflow:
+Eight-tab interface matching the ppsp workflow:
   Tab 1 "Rename"   — normalize filenames (ppsp -r)
   Tab 2 "Organize" — group into per-stack folders (ppsp -o)
-  Tab 3 "Cull"     — select chains, generate culling variants, review/prune stacks
+  Tab 3 "Cull"     — review/prune stacks via cull grid
   Tab 4 "Metadata" — name, tag, and rate stacks (ppsp -n)
-  Tab 5 "Discover" — step-by-step variant selection (enfuse → TMO → grading)
-  Tab 6 "Generate" — export final variants (ppsp -g)
-  Tab 7 "Cleanup"  — remove working folders (ppsp -C)
+  Tab 5 "Variants" — configure chains and generate discovery variants (ppsp -D)
+  Tab 6 "Select"   — step-by-step variant selection (enfuse → TMO → grading → CT)
+  Tab 7 "Generate" — export final variants (ppsp -g)
+  Tab 8 "Cleanup"  — remove working folders (ppsp -C)
 
-Log panel always visible at the bottom, collapsible; auto-expands during generation.
+Log panel always visible at the bottom, resizeable by dragging the sash; Ctrl+L toggles.
 Single click moves keyboard focus; double-click or F opens fullscreen; Space selects/unselects.
 Arrow keys navigate the tile grid. 'c' in fullscreen compares with previous image.
 
@@ -51,7 +52,8 @@ _TILE_BG_FOCUSED_SELECTED = "#80c0f0"
 _TILE_BG_DISCARDED = "#d8d8d8"
 _ROW_BG_FOCUSED = "#ddeeff"
 
-_DISCOVER_COLS = 3  # tiles per row in Discover tab (3 × 392px ≈ fits 1200px)
+_META_THUMB_SIZE = (96, 64)    # small thumbnail in Metadata tab
+_DISCOVER_COLS = 3  # tiles per row in Select tab (3 × 392px ≈ fits 1200px)
 _CULL_GRID_COLS = 3  # tiles per row in culling grid
 
 
@@ -190,22 +192,43 @@ class App:
         self._log_text = None
         self._log_frame = None
         self._log_toggle_btn = None
+        self._paned: Optional[object] = None
+        self._log_sash_pos: Optional[int] = None
 
         # Metadata tab state
         self._meta_entries: List[Dict] = []   # [{sname, title_var, tags_var, rating_var}]
+        self._meta_thumb_refs: List[object] = []  # keep thumbnail references alive
 
-        # Notebook
-        nb = ttk.Notebook(self.root)
-        nb.pack(fill="both", expand=True, padx=6, pady=6)
+        # Status bar (packed first so it's always at very bottom)
+        status = tk.Label(self.root, textvariable=self._progress_text, anchor="w",
+                          relief="sunken", font=("mono", 9))
+        status.pack(side="bottom", fill="x", padx=6, pady=(0, 2))
+
+        # PanedWindow: notebook (top) + log panel (bottom, resizeable by dragging)
+        paned = tk.PanedWindow(self.root, orient="vertical",
+                               sashwidth=6, sashrelief="raised", bg="#aaa")
+        paned.pack(fill="both", expand=True, padx=6, pady=6)
+        self._paned = paned
+
+        # Notebook in top pane
+        nb_outer = ttk.Frame(paned)
+        paned.add(nb_outer, stretch="always")
+        nb = ttk.Notebook(nb_outer)
+        nb.pack(fill="both", expand=True)
         self._nb = nb
         nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
-        # Build all tabs
+        # Log frame in bottom pane
+        self._log_frame = ttk.Frame(paned)
+        paned.add(self._log_frame, stretch="never", minsize=24)
+
+        # Build all tabs (8 tabs)
         self._rename_frame = ttk.Frame(nb)
         self._organize_frame = ttk.Frame(nb)
         self._cull_frame = ttk.Frame(nb)
         self._metadata_frame = ttk.Frame(nb)
-        self._discover_frame = ttk.Frame(nb)
+        self._variants_frame = ttk.Frame(nb)
+        self._select_frame = ttk.Frame(nb)
         self._generate_frame = ttk.Frame(nb)
         self._cleanup_frame = ttk.Frame(nb)
 
@@ -213,25 +236,25 @@ class App:
         nb.add(self._organize_frame, text=" Organize ")
         nb.add(self._cull_frame, text=" Cull ")
         nb.add(self._metadata_frame, text=" Metadata ")
-        nb.add(self._discover_frame, text=" Discover ")
+        nb.add(self._variants_frame, text=" Variants ")
+        nb.add(self._select_frame, text=" Select ")
         nb.add(self._generate_frame, text=" Generate ")
         nb.add(self._cleanup_frame, text=" Cleanup ")
 
         self._build_rename_tab()
         self._build_organize_tab()
-        self._build_cull_tab(ENFUSE_VARIANTS, TMO_VARIANTS, GRADING_PRESETS, CT_PRESETS)
+        self._build_cull_tab()
         self._build_metadata_tab()
-        self._build_discover_tab()
+        self._build_variants_tab(ENFUSE_VARIANTS, TMO_VARIANTS, GRADING_PRESETS, CT_PRESETS)
+        self._build_select_tab()
         self._build_generate_tab()
         self._build_cleanup_tab()
 
-        # Log panel (always visible, below notebook)
+        # Build log panel contents (inside self._log_frame already in paned)
         self._build_log_panel()
 
-        # Status bar
-        status = tk.Label(self.root, textvariable=self._progress_text, anchor="w",
-                          relief="sunken", font=("mono", 9))
-        status.pack(side="bottom", fill="x", padx=6, pady=(0, 2))
+        # Set initial sash position to ~80% after the window has been laid out
+        self.root.after(150, self._set_initial_sash)
 
         self._bind_shortcuts()
         self.root.after(200, self._poll_queue)
@@ -351,14 +374,38 @@ class App:
         threading.Thread(target=_run, daemon=True).start()
 
     # ------------------------------------------------------------------
-    # Tab 3 — Cull (chain configurator + generate culling variants)
+    # Tab 3 — Cull (review/prune via cull grid only)
     # ------------------------------------------------------------------
 
-    def _build_cull_tab(self, enfuse_ids, tmo_ids, grading_ids, ct_ids) -> None:
+    def _build_cull_tab(self) -> None:
         import tkinter as tk
         from tkinter import ttk
 
         frame = self._cull_frame
+
+        tk.Label(frame,
+                 text="Review culling previews and prune unwanted stacks.",
+                 font=("TkDefaultFont", 10)).pack(pady=(20, 8))
+        tk.Label(frame,
+                 text="Generate culling previews first via 'ppsp -c', then review below.",
+                 foreground="#555").pack(pady=(0, 16))
+
+        ttk.Button(frame, text="Open cull grid…",
+                   command=self._open_cull_review).pack(ipadx=16, ipady=6)
+
+        self._cull_status = tk.StringVar(value="")
+        ttk.Label(frame, textvariable=self._cull_status,
+                  foreground="#555").pack(pady=8)
+
+    # ------------------------------------------------------------------
+    # Tab 5 — Variants (chain configurator + stacks list + generate)
+    # ------------------------------------------------------------------
+
+    def _build_variants_tab(self, enfuse_ids, tmo_ids, grading_ids, ct_ids) -> None:
+        import tkinter as tk
+        from tkinter import ttk
+
+        frame = self._variants_frame
 
         # Left pane: stacks list
         left = ttk.LabelFrame(frame, text="Stacks")
@@ -442,10 +489,6 @@ class App:
 
         self._progress_bar = ttk.Progressbar(right, mode="indeterminate")
         self._progress_bar.pack(fill="x", padx=4, pady=2)
-
-        ttk.Separator(right).pack(fill="x", pady=4)
-        ttk.Button(right, text="Review cull grid…",
-                   command=self._open_cull_review).pack(fill="x", padx=4, pady=4)
 
         _shortcuts_label(frame,
             "← → move stack  ·  Enter toggle  ·  Select all/Deselect all for batch")
@@ -815,7 +858,10 @@ class App:
 
         col_hdr = tk.Frame(frame, bg="#ddd")
         col_hdr.pack(fill="x", padx=8, pady=(0, 2))
-        for text, w in [("Stack", 22), ("Title", 28), ("Tags", 22), ("Rating", 8)]:
+        # Thumb placeholder column (width matches _META_THUMB_SIZE[0])
+        tk.Label(col_hdr, text="", bg="#ddd",
+                 width=_META_THUMB_SIZE[0] // 8).pack(side="left", padx=2)
+        for text, w in [("Folder / RAW count", 36), ("Title", 28), ("Tags", 22), ("Rating", 8)]:
             tk.Label(col_hdr, text=text, bg="#ddd", font=("mono", 9, "bold"),
                      width=w, anchor="w").pack(side="left", padx=2)
 
@@ -842,11 +888,12 @@ class App:
     def _load_metadata(self) -> None:
         import tkinter as tk
         from tkinter import ttk
-        from .naming import load_stacks_csv, build_stacks_csv_rows
+        from .naming import load_stacks_csv, build_stacks_csv_rows, _RAW_EXTS
 
         for w in self._meta_inner.winfo_children():
             w.destroy()
         self._meta_entries.clear()
+        self._meta_thumb_refs.clear()
 
         existing = load_stacks_csv(self.source)
         rows = build_stacks_csv_rows(self.source, existing)
@@ -857,15 +904,29 @@ class App:
             tags = row.get("Tags", "")
             rating = row.get("Rating", "")
 
+            stack_dir = self.source / sname
+            raw_count = sum(
+                1 for f in stack_dir.iterdir()
+                if f.is_file() and f.suffix.lower() in _RAW_EXTS
+            ) if stack_dir.exists() else 0
+
             r = tk.Frame(self._meta_inner, pady=1)
             r.pack(fill="x")
 
-            parts = sname.split("-")
-            short_id = parts[2] if len(parts) >= 3 else sname
-            if len(parts) >= 4 and not parts[3].startswith("z"):
-                short_id = f"{parts[2]}-{parts[3]}"
-            tk.Label(r, text=short_id, font=("mono", 9), width=22, anchor="w").pack(
-                side="left", padx=2)
+            # Thumbnail: try cull preview, z2, z6 dirs; show gray box on failure
+            thumb_img = self._find_meta_thumb(sname)
+            if thumb_img:
+                self._meta_thumb_refs.append(thumb_img)
+                tk.Label(r, image=thumb_img, anchor="w").pack(side="left", padx=2)
+            else:
+                tk.Label(r, text="", bg="#ccc",
+                         width=_META_THUMB_SIZE[0] // 8,
+                         height=_META_THUMB_SIZE[1] // 16).pack(side="left", padx=2)
+
+            # Full folder name + raw count
+            folder_label = f"{sname}  [{raw_count} RAW]" if raw_count else sname
+            tk.Label(r, text=folder_label, font=("mono", 8), width=36,
+                     anchor="w").pack(side="left", padx=2)
 
             title_var = tk.StringVar(value=title)
             ttk.Entry(r, textvariable=title_var, width=28).pack(side="left", padx=2)
@@ -885,6 +946,29 @@ class App:
             })
 
         self._meta_status.set(f"Loaded {len(rows)} stacks.")
+
+    def _find_meta_thumb(self, sname: str) -> Optional[object]:
+        """Return a small PhotoImage for the metadata row, or None."""
+        stack_dir = self.source / sname
+        candidates: List[Path] = []
+        # Try cull preview first (smallest dedicated preview)
+        cull_dir = self.source / "cull"
+        base = stack_dir_to_filename_base(sname)
+        if cull_dir.exists():
+            candidates.extend(sorted(cull_dir.glob(f"{base}_count*.jpg"))[:1])
+        # Fallback: smallest z-tier dirs
+        for zt in ("z2", "z6", "z25"):
+            zd = stack_dir / zt
+            if zd.exists():
+                jpgs = sorted(zd.glob("*.jpg"))
+                if jpgs:
+                    candidates.append(jpgs[0])
+                    break
+        for path in candidates:
+            img = _load_thumb(path, _META_THUMB_SIZE)
+            if img:
+                return img
+        return None
 
     def _save_metadata(self) -> None:
         from .naming import (build_stacks_csv_rows, load_stacks_csv, save_stacks_csv,
@@ -931,14 +1015,14 @@ class App:
         self._load_metadata()
 
     # ------------------------------------------------------------------
-    # Tab 5 — Discover (step-by-step variant selection)
+    # Tab 6 — Select (step-by-step variant selection)
     # ------------------------------------------------------------------
 
-    def _build_discover_tab(self) -> None:
+    def _build_select_tab(self) -> None:
         import tkinter as tk
         from tkinter import ttk
 
-        frame = self._discover_frame
+        frame = self._select_frame
 
         top = ttk.Frame(frame)
         top.pack(fill="x", padx=6, pady=4)
@@ -947,7 +1031,7 @@ class App:
         self._stack_combo = ttk.Combobox(top, textvariable=self._review_stack_var,
                                           state="readonly", width=40)
         self._stack_combo.pack(side="left", padx=4)
-        self._stack_combo.bind("<<ComboboxSelected>>", lambda _: self._refresh_discover())
+        self._stack_combo.bind("<<ComboboxSelected>>", lambda _: self._refresh_select())
 
         step_frame = ttk.LabelFrame(top, text="Step")
         step_frame.pack(side="left", padx=8)
@@ -955,11 +1039,11 @@ class App:
                              ("grading", "3 Grading"), ("ct", "4 CT")]:
             ttk.Radiobutton(step_frame, text=label, variable=self._review_step,
                             value=step,
-                            command=self._refresh_discover_tiles).pack(side="left", padx=2)
+                            command=self._refresh_select_tiles).pack(side="left", padx=2)
 
-        self._discover_btn_next = ttk.Button(top, text="Next step ▶",
-                                              command=self._discover_next_step)
-        self._discover_btn_next.pack(side="left", padx=4)
+        self._select_btn_next = ttk.Button(top, text="Next step ▶",
+                                            command=self._discover_next_step)
+        self._select_btn_next.pack(side="left", padx=4)
         ttk.Button(top, text="Save to session",
                    command=self._save_discover_to_session).pack(side="left", padx=4)
 
@@ -970,14 +1054,14 @@ class App:
         vsb.pack(side="right", fill="y")
         canvas.pack(fill="both", expand=True, padx=6, pady=4)
 
-        self._review_canvas = canvas
-        self._review_tiles_frame = tk.Frame(canvas)
-        self._review_tiles_id = canvas.create_window(
-            (0, 0), window=self._review_tiles_frame, anchor="nw")
-        self._review_tiles_frame.bind("<Configure>",
+        self._select_canvas = canvas
+        self._select_tiles_frame = tk.Frame(canvas)
+        self._select_tiles_id = canvas.create_window(
+            (0, 0), window=self._select_tiles_frame, anchor="nw")
+        self._select_tiles_frame.bind("<Configure>",
             lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.bind("<Configure>",
-            lambda e: canvas.itemconfig(self._review_tiles_id, width=e.width))
+            lambda e: canvas.itemconfig(self._select_tiles_id, width=e.width))
 
         bot = ttk.Frame(frame)
         bot.pack(fill="x", padx=6, pady=4)
@@ -986,9 +1070,9 @@ class App:
         ttk.Button(bot, text="Deselect all",
                    command=lambda: self._set_all_tiles(False)).pack(side="left", padx=2)
         ttk.Button(bot, text="← Prev stack",
-                   command=lambda: self._navigate_discover_stack(-1)).pack(side="left", padx=2)
+                   command=lambda: self._navigate_select_stack(-1)).pack(side="left", padx=2)
         ttk.Button(bot, text="Next stack →",
-                   command=lambda: self._navigate_discover_stack(1)).pack(side="left", padx=2)
+                   command=lambda: self._navigate_select_stack(1)).pack(side="left", padx=2)
 
         self._review_info = tk.StringVar(value="")
         ttk.Label(bot, textvariable=self._review_info).pack(side="right")
@@ -999,21 +1083,21 @@ class App:
 
     def _on_tab_changed(self, _event=None) -> None:
         tab = self._active_tab()
-        if tab == "Discover":
-            self._refresh_discover_stack_list()
+        if tab == "Select":
+            self._refresh_select_stack_list()
         elif tab == "Generate":
             if not self._log_tail_started:
                 self._log_tail_started = True
                 self._start_log_tail()
 
-    def _refresh_discover_stack_list(self) -> None:
+    def _refresh_select_stack_list(self) -> None:
         stacks = [d.name for d in find_stack_dirs(self.source)]
         self._stack_combo["values"] = stacks
         if stacks and not self._review_stack_var.get():
             self._review_stack_var.set(stacks[0])
-            self._refresh_discover()
+            self._refresh_select()
 
-    def _refresh_discover(self) -> None:
+    def _refresh_select(self) -> None:
         sname = self._review_stack_var.get()
         if not sname:
             return
@@ -1032,9 +1116,9 @@ class App:
             self._review_order.append(sname)
 
         self._review_step.set("enfuse")
-        self._refresh_discover_tiles()
+        self._refresh_select_tiles()
 
-    def _refresh_discover_tiles(self) -> None:
+    def _refresh_select_tiles(self) -> None:
         import tkinter as tk
         from .variants import ENFUSE_VARIANTS, TMO_VARIANTS, GRADING_PRESETS, CT_PRESETS, Z_TIERS
 
@@ -1163,7 +1247,7 @@ class App:
         tiles: List[Tuple[str, Path]] = list(sorted(display.items()))
 
         # Full rebuild of tile widgets
-        for w in self._review_tiles_frame.winfo_children():
+        for w in self._select_tiles_frame.winfo_children():
             w.destroy()
         self._tile_frames.clear()
         self._tile_data = list(tiles)
@@ -1180,7 +1264,7 @@ class App:
 
         for idx, (chain_id, fpath) in enumerate(tiles):
             if idx % COLS == 0:
-                row_frame = tk.Frame(self._review_tiles_frame)
+                row_frame = tk.Frame(self._select_tiles_frame)
                 row_frame.pack(fill="x", pady=2)
 
             wins = self._component_wins(chain_id)
@@ -1199,8 +1283,8 @@ class App:
                 self._tile_idx = idx
 
         if not tiles:
-            tk.Label(self._review_tiles_frame,
-                     text="No variants found for this step. Run Cull → Generate variants first.",
+            tk.Label(self._select_tiles_frame,
+                     text="No variants found for this step. Run Variants → Generate variants first.",
                      font=("sans-serif", 11)).pack(pady=20)
 
     def _tile_bg(self, chain_id: str, step_sel: Set[str],
@@ -1397,7 +1481,7 @@ class App:
         idx = steps.index(step)
         if idx < len(steps) - 1:
             self._review_step.set(steps[idx + 1])
-            self._refresh_discover_tiles()
+            self._refresh_select_tiles()
 
     def _set_all_tiles(self, selected: bool) -> None:
         sname = self._review_stack_var.get()
@@ -1440,7 +1524,7 @@ class App:
         messagebox.showinfo("Saved",
                             f"Selection saved for {sname}.\n\n{', '.join(selected_chains)}")
 
-    def _navigate_discover_stack(self, delta: int) -> None:
+    def _navigate_select_stack(self, delta: int) -> None:
         stacks = list(self._stack_combo["values"])
         if not stacks:
             return
@@ -1451,7 +1535,7 @@ class App:
             idx = 0
         new_idx = (idx + delta) % len(stacks)
         self._review_stack_var.set(stacks[new_idx])
-        self._refresh_discover()
+        self._refresh_select()
 
     # ------------------------------------------------------------------
     # Tab 6 — Generate (export finals)
@@ -1610,20 +1694,19 @@ class App:
     # ------------------------------------------------------------------
 
     def _build_log_panel(self) -> None:
+        """Populate self._log_frame (already placed in PanedWindow) with header + text widget."""
         import tkinter as tk
         from tkinter import ttk
 
-        log_hdr = ttk.Frame(self.root)
-        log_hdr.pack(fill="x", padx=6, pady=(2, 0))
-        ttk.Label(log_hdr, text="Log  (ppsp.log)").pack(side="left")
+        # Header row inside the log frame
+        log_hdr = ttk.Frame(self._log_frame)
+        log_hdr.pack(fill="x", pady=(2, 0))
+        ttk.Label(log_hdr, text="Log  (ppsp.log)").pack(side="left", padx=4)
         self._log_toggle_btn = ttk.Button(log_hdr, text="▼ Collapse",
                                            command=self._toggle_log_panel, width=12)
-        self._log_toggle_btn.pack(side="right")
+        self._log_toggle_btn.pack(side="right", padx=2)
 
-        self._log_frame = ttk.Frame(self.root)
-        self._log_frame.pack(fill="both", expand=False, padx=6, pady=(0, 2))
-
-        self._log_text = tk.Text(self._log_frame, height=10, font=("mono", 8),
+        self._log_text = tk.Text(self._log_frame, height=6, font=("mono", 8),
                                   state="disabled", wrap="none")
         log_vsb = ttk.Scrollbar(self._log_frame, orient="vertical",
                                   command=self._log_text.yview)
@@ -1634,18 +1717,35 @@ class App:
         log_hsb.pack(side="bottom", fill="x")
         self._log_text.pack(fill="both", expand=True)
 
-    def _toggle_log_panel(self) -> None:
-        if self._log_frame is None:
+    def _set_initial_sash(self) -> None:
+        """Set the PanedWindow sash to ~80% of total height after the window is rendered."""
+        if self._paned is None:
             return
-        self._log_collapsed = not self._log_collapsed
+        h = self._paned.winfo_height()  # type: ignore[union-attr]
+        if h <= 1:
+            self.root.after(100, self._set_initial_sash)
+            return
+        sash_y = int(h * 0.80)
+        self._paned.sash_place(0, 0, sash_y)  # type: ignore[union-attr]
+
+    def _toggle_log_panel(self) -> None:
+        if self._paned is None:
+            return
         if self._log_collapsed:
-            self._log_frame.pack_forget()
-            if self._log_toggle_btn:
-                self._log_toggle_btn.configure(text="▶ Expand")
-        else:
-            self._log_frame.pack(fill="both", expand=False, padx=6, pady=(0, 2))
+            # Restore to saved sash position
+            sash_y = self._log_sash_pos or int(self._paned.winfo_height() * 0.80)  # type: ignore[union-attr]
+            self._paned.sash_place(0, 0, sash_y)  # type: ignore[union-attr]
+            self._log_collapsed = False
             if self._log_toggle_btn:
                 self._log_toggle_btn.configure(text="▼ Collapse")
+        else:
+            # Save position and push sash to near-bottom to "collapse" the log
+            self._log_sash_pos = self._paned.sash_coord(0)[1]  # type: ignore[union-attr]
+            total_h = self._paned.winfo_height()  # type: ignore[union-attr]
+            self._paned.sash_place(0, 0, total_h - 28)  # type: ignore[union-attr]
+            self._log_collapsed = True
+            if self._log_toggle_btn:
+                self._log_toggle_btn.configure(text="▶ Expand")
 
     def _uncollapse_log(self) -> None:
         if self._log_collapsed:
@@ -1718,58 +1818,58 @@ class App:
 
     def _on_left_key(self, _event=None) -> str:
         tab = self._active_tab()
-        if tab == "Cull":
+        if tab == "Variants":
             self._navigate_stacks(-1)
-        elif tab == "Discover":
+        elif tab == "Select":
             self._navigate_tile_grid(-1, 0)
         return "break"
 
     def _on_right_key(self, _event=None) -> str:
         tab = self._active_tab()
-        if tab == "Cull":
+        if tab == "Variants":
             self._navigate_stacks(1)
-        elif tab == "Discover":
+        elif tab == "Select":
             self._navigate_tile_grid(1, 0)
         return "break"
 
     def _on_up_key(self, _event=None) -> Optional[str]:
-        if self._active_tab() == "Discover":
+        if self._active_tab() == "Select":
             self._navigate_tile_grid(0, -1)
             return "break"
         return None
 
     def _on_down_key(self, _event=None) -> Optional[str]:
-        if self._active_tab() == "Discover":
+        if self._active_tab() == "Select":
             self._navigate_tile_grid(0, 1)
             return "break"
         return None
 
     def _on_enter_key(self, _event=None) -> None:
         tab = self._active_tab()
-        if tab == "Cull":
+        if tab == "Variants":
             self._toggle_focused_stack()
 
     def _on_tab_key(self, _event=None) -> Optional[str]:
-        if self._active_tab() == "Discover":
+        if self._active_tab() == "Select":
             self._discover_next_step()
             return "break"
         return None
 
     def _on_d_key(self, _event=None) -> None:
-        if self._active_tab() == "Discover":
+        if self._active_tab() == "Select":
             self._discard_focused()
 
     def _on_r_key(self, _event=None) -> None:
-        if self._active_tab() == "Discover":
+        if self._active_tab() == "Select":
             self._reactivate_focused()
 
     def _on_f_key(self, _event=None) -> None:
-        if self._active_tab() == "Discover" and self._focused_chain:
+        if self._active_tab() == "Select" and self._focused_chain:
             self._open_fullscreen(self._focused_chain)
 
     def _on_space_key(self, _event=None) -> Optional[str]:
         tab = self._active_tab()
-        if tab == "Discover" and self._focused_chain:
+        if tab == "Select" and self._focused_chain:
             self._toggle_tile_select()
             return "break"
         return None

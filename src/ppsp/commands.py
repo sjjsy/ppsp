@@ -572,6 +572,7 @@ def cmd_discover(
     quality: int = 80,
     redo: bool = False,
     stacks_specs: Optional[List[str]] = None,
+    batch: bool = False,
 ) -> None:
     """Run variant discovery for each stack and write ppsp_generate.csv — see README.md § --variants."""
     tokens = [t.strip() for t in variants_arg.split(",") if t.strip()]
@@ -591,7 +592,11 @@ def cmd_discover(
                 if spec is not None:
                     chain_specs.append(spec)
                 else:
-                    logging.warning("Unknown chain spec '%s' in --variants, skipping", t)
+                    msg = f"Unknown chain spec '{t}' in --variants"
+                    if batch:
+                        logging.warning("%s, skipping", msg)
+                    else:
+                        raise ValueError(msg)
         enfuse_ids: List[str] = []
         tmo_ids: List[str] = []
     else:
@@ -842,7 +847,7 @@ def _looks_like_chain_spec(s: str) -> bool:
 
 def _is_chain_pattern(s: str) -> bool:
     """Return True if s contains Python regex metacharacters (not a literal chain spec)."""
-    return bool(re.search(r"[*.\[?+]", s))
+    return bool(re.search(r"[*.({\[?+|]", s))
 
 
 def _expand_chain_spec_to_all_stacks(

@@ -367,7 +367,7 @@ For each operator, a `d`-suffix "defaults" variant is listed first (no extra fla
 | `r02h` | Reinhard '02 | High-key / bright; elevated midtone exposure for light, airy results | `--tmoR02Key 0.28 --tmoR02Phi 1.0 --postgamma 1.15` |
 | `r02m` | Reinhard '02 | Moody / dark; low key, naturally shadowy atmosphere | `--tmoR02Key 0.10 --tmoR02Phi 1.0 --postgamma 1.0` |
 | `fatd` | Fattal | Luminance defaults | — |
-| `fatn` | Fattal | Tamed / natural; gradient pop with desaturated output and moderate brightness lift | `--tmoFatColor 0.8 --gamma 1.1 --postgamma 1.1` |
+| `fatn` | Fattal | Tamed / natural; gradient pop with desaturated output and modest brightness lift | `--tmoFatColor 0.8 --gamma 1.05 --postgamma 1.05` |
 | `fatc` | Fattal | Creative / dramatic; full local contrast on exteriors and high-contrast architecture | `--tmoFatAlpha 0.8 --tmoFatBeta 0.9 --postgamma 1.05` |
 | `fats` | Fattal | Soft / low-gradient; reduced local contrast for plain walls and clean interiors | `--tmoFatColor 0.6 --tmoFatAlpha 0.5 --tmoFatBeta 0.95 --gamma 1.1 --postgamma 1.1` |
 | `ferr` | Ferradans | Luminance defaults | — |
@@ -601,17 +601,35 @@ shoot/
     └── 20260416095559-m4azzz-2126-bbfdtw-z100-sel3-fatc-dvi2.jpg
 ```
 
-## Usage example (actually used on 2026-04-22)
+## Usage example (actually used on 2026-04-26)
 
 ```bash
+## Steps 1-6:
+# Steps 1-3: Systematic renaming, stack organization, and generation of previews culling
 ppsp -r -l L15
 ppsp -o
 ppsp -c
-# Step 4: ppsp opens cull/ automatically; review and delete unwanted previews
+# Step 4: Manually review and deletion of unwanted previews
+# Step 5: Prune unwanted stacks
 ppsp -P
-# Step 6: name surviving stacks interactively
+# Step 6: Add human readable names, tags and ratings to the surviving stacks interactively
 ppsp -n
-# Now we have clearly organized, titled stacks of the photos we are really interested in.
+# Now we have clearly organized, titled stacks of the photo stacks we are really interested in.
+## Generation with no actual discovery phase (you know what works)
+# Manually add a good processing chain guess for each stack in ppsp_stacks.csv that you want to generate (f. ex. `sel4-fatn-neut`)
+# Step 8: Generate the outputs
+ppsp -z z25 -q 70 -i 2048 -V ppsp_stacks.csv -g
+# Step 8: Generate a warmer alternative for each output
+ppsp -z z25 -q 70 -i 2048 -s out-2048/* -gV sel4-fatn-neut-ctw5
+# For a specific stack, create more alternatives
+ppsp -z z25 -q 70 -i 2048 -s 2126 -gV sel4-(fatn|kimn|m08n)-neut-ctw5
+ppsp -z z25 -q 70 -i 2048 -s 2116 2126 -gV 'sel5-kimn-dvi1-ctw5'
+ppsp -z z25 -q 70 -i 2048 -s out-2048/* -gV sel4-kimv-dvi1-ctw5
+# Manually go through the outputs and delete the ones that you do not need
+eog out-2048/
+# Step 9: Cleanup the intermediary files
+ppsp -C
+
 # Create discovery variants for the processing chain combinations that will surely include the best versions for each photo in this photoshoot (what is best for a photo depends on lighting and other photo-specific circumstances)
 ppsp -DV 'sel4,r02p,fatd,kimd,m06p,neut,deno,dvi1,dvi2' -z z6
 # Now we have 24 variants for each stack. Find the best enfuse + tone-mapping combo by comparing the denoised versions:
@@ -623,6 +641,37 @@ ppsp -gV 'sel4,r02p,fatd,fatn,kimd,m06p,deno' -z z25
 ppsp -DV sel6-r02p-dvi2 -z z6 -s 2101
 ppsp -gz z25
 ```
+
+## Usage example (actually used on 2026-04-22)
+
+
+STACKSA="2136 2251 2276 2320 2441 2444 2489"
+
+# EOF
+
+#STACKSA="2441 2444 2489"
+
+# Tight best guess selection that should include the best variant for all stacks
+ppsp -gz z25 -q 70 -i 2048 -V 'sel4-fatd-dvi1-ctw5' -s $STACKSA
+ppsp -gz z25 -q 70 -i 2048 -V 'sel4-fatn-dvi1-ctw5' -s $STACKSA
+ppsp -gz z25 -q 70 -i 2048 -V 'sel4-kimd-dvi1' -s $STACKSA
+ppsp -gz z25 -q 70 -i 2048 -V 'sel4-r02p-dvi1' -s $STACKSA
+
+# Specific bests
+
+## 2136 -- rh__pöydältä_ikkunoihin
+ppsp -z z25 -q 70 -i 2048 -s 2136 -gV sel4-fatn-deno-ctw5
+ppsp -z z25 -q 70 -i 2048 -s 2136 -gV sel4-r02p-dvi1-ctw5
+
+
+# New flow
+
+
+# OLD
+ppsp -gs 2136 -z z25 -V 'sel4,fatd,fatn,dvi1,ctw5'
+ppsp -gs 2251 -z z25 -V 'sel4,fatd,fatn,dvi1,ctw5' # 'sel4-(fatn|r02p)-(warm|dv1w)'
+ppsp -gs 2276 -z z25 -V 'sel4,fatn,dvi1-ctw5'
+
 
 ## Development
 

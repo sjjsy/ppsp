@@ -186,6 +186,7 @@ def main(argv=None) -> None:
                 quality=args.quality,
                 redo=args.redo,
                 stacks_specs=stacks_specs,
+                batch=args.batch,
             )
 
     elif args.generate:

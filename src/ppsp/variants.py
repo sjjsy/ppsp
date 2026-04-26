@@ -144,10 +144,10 @@ TMO_VARIANTS: Dict[str, List[str]] = {
              "--postgamma", "1.0"],
     # --- Fattal ---
     "fatd": ["--tmo", "fattal"],                                                 # Luminance defaults
-    "fatn": ["--tmo", "fattal",                                                  # Tamed / natural; desaturated, moderately lifted
+    "fatn": ["--tmo", "fattal",                                                  # Tamed / natural; desaturated, modestly lifted
              "--tmoFatColor", "0.8",
-             "--gamma", "1.1",
-             "--postgamma", "1.1"],
+             "--gamma", "1.05",
+             "--postgamma", "1.05"],
     "fatc": ["--tmo", "fattal",                                                  # Creative / dramatic; full gradient pop, subtle lift
              "--tmoFatAlpha", "0.8",
              "--tmoFatBeta", "0.9",
@@ -195,7 +195,7 @@ GRADING_PRESETS: Dict[str, List[str]] = {
         "-colorspace", "sRGB",
         "-despeckle",
         "-sigmoidal-contrast", "3,50%",
-        "-evaluate", "multiply", "1.07",
+        "-evaluate", "multiply", "1.03",
         "-modulate", "100,105,100",
         "-unsharp", "0x1.5+1.0+0.05",
     ],
@@ -203,7 +203,7 @@ GRADING_PRESETS: Dict[str, List[str]] = {
         "-colorspace", "sRGB",
         "-despeckle",
         "-sigmoidal-contrast", "3,50%",
-        "-evaluate", "multiply", "1.08",
+        "-evaluate", "multiply", "1.06",
         "-modulate", "100,112,100",
         "-unsharp", "0x1+0.8+0.05",
     ],
@@ -211,7 +211,7 @@ GRADING_PRESETS: Dict[str, List[str]] = {
         "-colorspace", "sRGB",
         "-despeckle",
         "-sigmoidal-contrast", "4,45%",
-        "-evaluate", "multiply", "1.12",
+        "-evaluate", "multiply", "1.10",
         "-modulate", "100,118,100",
         "-unsharp", "0x1.2+0.6+0.05",
     ],

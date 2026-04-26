@@ -615,10 +615,11 @@ def _run_hdr_variants(
             if not ok3:
                 continue
 
-            # Chain stub 2: enfuse + TMO (no grading) — raw TMO output for comparison
+            # Chain stub 2: enfuse + TMO (no grading) — raw TMO output for comparison.
+            # EXIF copy is safe here; annotation is deferred until AFTER the grading loop
+            # because apply_grading() reads from tmo_jpg as its pixel input.
             if tmo_stub_new:
                 _copy_exif(mid_photo.path, tmo_jpg)
-                annotate_image(tmo_jpg)
             generated.append(tmo_stub_name)
 
             for grading_id in grading_ids:
@@ -633,6 +634,9 @@ def _run_hdr_variants(
                             _copy_exif(mid_photo.path, out_path)
                             annotate_image(out_path)
                         generated.append(out_name)
+
+            if tmo_stub_new:
+                annotate_image(tmo_jpg)
 
 
 def _base_name(stack_name: str) -> str:
