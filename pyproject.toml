@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ppsp"
 version = "0.1.0"
-description = "Post Photoshoot Processing — CLI tool for HDR and focus stack photographers"
+description = "Post Photoshoot Processor — CLI tool for HDR and focus stack photographers"
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }
@@ -13,9 +13,11 @@ authors = [{ name = "Samuel Sydänlammi", email = "samuel.sydanlammi@synsigma.co
 
 [project.scripts]
 ppsp = "ppsp.cli:main"
+ppsp-gui = "ppsp.gui:launch"
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "ruff>=0.4"]
+gui = ["Pillow>=9.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -47,12 +47,12 @@ def export_at_resolution(
     quality: int = 80,
     redo: bool = False,
 ) -> Path:
-    """Resize src to long_side pixels (shrink-only) and write to out{long_side}/.
+    """Resize src to long_side pixels (shrink-only) and write to out-{long_side}/.
 
     The resized copy has metadata stripped for web delivery.
     Returns the destination path.
     """
-    out_dir = shoot_dir / f"out{long_side}"
+    out_dir = shoot_dir / f"out-{long_side}"
     out_dir.mkdir(parents=True, exist_ok=True)
     dst = out_dir / src.name
     if dst.exists() and not redo:
@@ -75,10 +75,10 @@ def export_variants(
     quality: int = 80,
     redo: bool = False,
 ) -> None:
-    """Export each variant to its outBBBB/ folder.
+    """Export each variant to its out-BBBB/ folder.
 
-    Always writes the full z-tier copy to out{actual_long_side}/.
-    If resolution is given, also writes a resized copy to out{resolution}/.
+    Always writes the full z-tier copy to out-{actual_long_side}/.
+    If resolution is given, also writes a resized copy to out-{resolution}/.
     """
     for vpath in variant_paths:
         export_at_full_res(vpath, shoot_dir, redo=redo)

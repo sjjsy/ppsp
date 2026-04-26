@@ -17,6 +17,7 @@ from .commands import (
     run_full_workflow,
 )
 from .util import setup_logging
+from .interactive import run_interactive_discovery
 
 _SIZE_MAP = {
     "micro": "z2", "z2": "z2",
@@ -63,6 +64,11 @@ def _build_parser():
                         help="Debug-level logging")
     parser.add_argument("--redo", "-R", action="store_true",
                         help="Regenerate outputs even if they already exist")
+    parser.add_argument("--interactive", "-I", action="store_true",
+                        help="Per-stack interactive discovery with session-based variant narrowing "
+                             "(affects -D and full workflow)")
+    parser.add_argument("--gui", action="store_true",
+                        help="Launch the tkinter GUI (requires tkinter; Pillow optional for thumbnails)")
 
     # Options (affect command behaviour)
     opts = parser.add_argument_group("options")
@@ -115,6 +121,11 @@ def main(argv=None) -> None:
     stacks_specs = list(args.stacks) if args.stacks else None
 
     # Dispatch
+    if args.gui:
+        from .gui import launch
+        launch(source)
+        return
+
     if args.rename is not None:
         files = [Path(f) for f in args.rename] if args.rename else []
         cmd_rename(files, source,
@@ -134,15 +145,25 @@ def main(argv=None) -> None:
 
     elif args.discover:
         z_tier = _parse_size(args.size, "z25")
-        variants = args.variants if args.variants is not None else "some"
-        cmd_discover(
-            source,
-            variants_arg=variants,
-            z_tier=z_tier,
-            quality=args.quality,
-            redo=args.redo,
-            stacks_specs=stacks_specs,
-        )
+        if args.interactive:
+            run_interactive_discovery(
+                source,
+                z_tier=z_tier,
+                quality=args.quality,
+                redo=args.redo,
+                viewer=args.viewer,
+                stacks_specs=stacks_specs,
+            )
+        else:
+            variants = args.variants if args.variants is not None else "some"
+            cmd_discover(
+                source,
+                variants_arg=variants,
+                z_tier=z_tier,
+                quality=args.quality,
+                redo=args.redo,
+                stacks_specs=stacks_specs,
+            )
 
     elif args.generate:
         z_tier = _parse_size(args.size, "z100")
@@ -180,6 +201,7 @@ def main(argv=None) -> None:
             discover_z_tier=_parse_size(args.size, "z25"),
             generate_z_tier=_parse_size(args.size, "z100"),
             viewer=args.viewer,
+            interactive=args.interactive,
         )
 
 

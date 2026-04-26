@@ -670,9 +670,12 @@ def _expand_chain_spec_to_all_stacks(
     for stack_dir in stack_dirs:
         base = stack_dir.name[: -len("-stack")]
         if spec.tmo_id:
-            name = f"{base}-{spec.z_tier}-{spec.enfuse_id}-{spec.tmo_id}-{spec.grading_id}.jpg"
+            chain = f"{spec.enfuse_id}-{spec.tmo_id}-{spec.grading_id}"
         else:
-            name = f"{base}-{spec.z_tier}-{spec.enfuse_id}-{spec.grading_id}.jpg"
+            chain = f"{spec.enfuse_id}-{spec.grading_id}"
+        if spec.ct_id:
+            chain += f"-{spec.ct_id}"
+        name = f"{base}-{spec.z_tier}-{chain}.jpg"
         filenames.append(name)
     return filenames
 
@@ -729,7 +732,7 @@ def cmd_generate(
         else:
             skip_count += 1
 
-    out_desc = f"out{resolution}/" if resolution else "outBBBB/"
+    out_desc = f"out-{resolution}/" if resolution else "out-BBBB/"
     if skip_count > 0 and new_count == 0:
         logging.info("All %d requested variants already exist in %s", skip_count, out_desc)
     elif skip_count > 0:
@@ -852,11 +855,16 @@ def _generate_one(
 ) -> bool:
     """Execute chain steps for one target filename. Returns True if newly generated."""
     fname = Path(filename).name
-    # Skip if the full-res output already exists in any out-BBBB/ folder
     if not redo:
-        for d in source.glob("out-*/"):
-            if (d / fname).exists():
-                return False
+        full_res_copies = [d / fname for d in source.glob("out-*/") if (d / fname).exists()]
+        resized_exists = resolution is None or (source / f"out-{resolution}" / fname).exists()
+        if full_res_copies and resized_exists:
+            return False
+        # Full-res exists but resized copy is missing — resize from existing copy
+        if full_res_copies and not resized_exists and resolution is not None:
+            from .export import export_at_resolution
+            export_at_resolution(full_res_copies[0], source, resolution, quality=quality, redo=redo)
+            return True
 
     # Derive stack dir from filename convention
     # Filename: YYYYMMDDHHMMSS-CCCxxx-NNNN-chain.jpg
@@ -928,10 +936,11 @@ def _generate_one(
     else:
         grading_src = enfuse_tif
 
-    # Step 5: grading — staged final JPG also goes into z_dir
+    # Step 5: grading — staged final JPG also goes into z_dir.
+    # Always regenerate so discover-annotated intermediates are never exported.
     out_name = Path(filename).name
     final_jpg = z_dir / out_name
-    ok = apply_grading(grading_src, final_jpg, spec.grading_id, quality, redo=redo, ct_id=spec.ct_id)
+    ok = apply_grading(grading_src, final_jpg, spec.grading_id, quality, redo=True, ct_id=spec.ct_id)
     if not ok:
         logging.error("Grading failed for %s", filename)
         return False
@@ -1090,6 +1099,7 @@ def run_full_workflow(
     discover_z_tier: str = "z25",
     generate_z_tier: str = "z100",
     viewer: str = "xdg-open",
+    interactive: bool = False,
 ) -> None:
     """Run all steps in sequence, prompting between each unless --batch — see DESIGN.md § Workflow."""
 
@@ -1162,7 +1172,17 @@ def run_full_workflow(
         cmd_prune(source)
 
     if not skip("discover") and _prompt("Step 6: Variant discovery"):
-        cmd_discover(source, variants_arg=variants_arg, z_tier=discover_z_tier, quality=quality, redo=redo)
+        if interactive and not batch:
+            from .interactive import run_interactive_discovery
+            run_interactive_discovery(
+                source,
+                z_tier=discover_z_tier,
+                quality=quality,
+                redo=redo,
+                viewer=viewer,
+            )
+        else:
+            cmd_discover(source, variants_arg=variants_arg, z_tier=discover_z_tier, quality=quality, redo=redo)
 
     selection_method = "folder"
     if not skip("discover") and not batch:

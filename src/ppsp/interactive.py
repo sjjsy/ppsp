@@ -92,6 +92,9 @@ def run_interactive_discovery(
             session,
         )
 
+        if session.active_chains():
+            print(f"  Session wins: {session.win_summary()}")
+
         # Convergence check — offer auto-apply if stable pattern emerging
         if session.convergence_streak() >= batch_threshold and i < len(stack_dirs) - 1:
             remaining = len(stack_dirs) - i - 1
@@ -170,11 +173,12 @@ def _prompt_variant_set(session: SessionState) -> Optional[str]:
 
     opts = [
         ("1", "some  ", "sel4 × {m08n, fatn} × {neut, dvi1}"),
-        ("2", "many  ", "natu, sel3, sel4 × {m08n, fatn} × {neut, dvi1} + ctw5"),
-        ("3", "lots  ", "extended preset (5 enfuse, 6 TMO, 4 grading)"),
+        ("2", "many  ", "natu, sel4 × {m08n, r02p, fatn} × {neut, dvi1} + ctw5"),
+        ("3", "lots  ", "5 enfuse × 8 TMO × 4 grading + ctw5"),
+        ("4", "tmod  ", "sel4 × all default TMOs × neut + ctw5"),
     ]
     if active:
-        opts.append(("4", "active", f"session winners: {session.win_summary()}"))
+        opts.append(("5", "active", f"session winners: {session.win_summary()}"))
     opts.append(("c", "custom", "enter IDs or chain specs"))
     opts.append(("s", "skip  ", "skip this stack"))
 
@@ -189,14 +193,17 @@ def _prompt_variant_set(session: SessionState) -> Optional[str]:
         return "many"
     if choice == "3":
         return "lots"
-    if choice == "4" and active:
+    if choice == "4":
+        return "tmod"
+    if choice == "5" and active:
         return ",".join(active)
-    if choice in ("c", "4"):
+    if choice in ("c", "5"):
         val = input("IDs or chain specs (comma-separated): ").strip()
         return val if val else "some"
-    if choice == "s":
+    if choice in ("s", "skip"):
         return None
-    return "some"
+    # Anything else is treated directly as a custom chain spec or ID list
+    return choice or "some"
 
 
 def _scan_z_dir(stack_dir: Path, z_tier: str) -> List[str]:
