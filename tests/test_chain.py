@@ -58,6 +58,17 @@ def test_parse_chain_original_returns_none():
     assert parse_chain(filename) is None
 
 
+def test_parse_chain_with_shorthand_prefix():
+    """Named stacks embed a shorthand between NNNN and the z-tier — parse_chain must skip it."""
+    filename = "20260416095559-m4azzz-2126-bbfdtw-z25-sel4-fatd-dvi1.jpg"
+    spec = parse_chain(filename)
+    assert spec is not None
+    assert spec.z_tier == "z25"
+    assert spec.enfuse_id == "sel4"
+    assert spec.tmo_id == "fatd"
+    assert spec.grading_id == "dvi1"
+
+
 def test_roundtrip_compose_parse():
     spec = ChainSpec(z_tier="z6", enfuse_id="cont", tmo_id="ferw", grading_id="brig")
     chain = compose_chain(spec)

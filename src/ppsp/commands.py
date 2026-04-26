@@ -13,6 +13,18 @@ from typing import Callable, List, Optional, Set, TypeVar
 
 from .export import export_variants as _export_variants
 from .models import ChainSpec, StackType, parse_chain
+from .naming import (
+    STACKS_CSV,
+    build_stacks_csv_rows,
+    find_stack_dirs,
+    is_stack_dir,
+    load_stacks_csv,
+    rename_stack,
+    save_stacks_csv,
+    stack_dir_to_filename_base,
+    title_to_shorthand,
+    write_metadata_to_stack,
+)
 from .processing import (
     apply_grading,
     convert_raw_to_tiff,
@@ -241,7 +253,7 @@ def cmd_cull(source: Path, quality: int = 80, redo: bool = False) -> None:
     cull_dir = source / "cull"
     cull_dir.mkdir(exist_ok=True)
 
-    stack_dirs = sorted(d for d in source.iterdir() if d.is_dir() and d.name.endswith("-stack"))
+    stack_dirs = find_stack_dirs(source)
     if not stack_dirs:
         logging.warning("No stack directories found under %s", source)
         return
@@ -364,7 +376,7 @@ def _select_representative(stack_dir: Path, rows: list) -> Optional[Path]:
 def cmd_prune(source: Path) -> None:
     """Remove stack dirs that have no surviving cull preview — see README.md § Step 4."""
     cull_dir = source / "cull"
-    stack_dirs = sorted(d for d in source.iterdir() if d.is_dir() and d.name.endswith("-stack"))
+    stack_dirs = find_stack_dirs(source)
 
     for stack_dir in stack_dirs:
         stack_name = stack_dir.name
@@ -423,7 +435,7 @@ def cmd_discover(
     if stacks_filter is not None:
         stack_dirs = sorted(source / name for name in sorted(stacks_filter) if (source / name).is_dir())
     else:
-        stack_dirs = sorted(d for d in source.iterdir() if d.is_dir() and d.name.endswith("-stack"))
+        stack_dirs = find_stack_dirs(source)
 
     if not stack_dirs:
         logging.warning("No stack directories found")
@@ -541,12 +553,17 @@ def _write_generate_csv(csv_path: Path, generated: List[str], redo: bool) -> Non
 
 
 def _derive_stack_from_filename(filename: str) -> Optional[str]:
-    """Derive stack dir name from a variant filename (strips chain components after NNNN)."""
-    stem = Path(filename).stem
-    parts = stem.split("-")
-    if len(parts) >= 3:
+    """Derive stack dir name from a variant filename.
+
+    Handles both old-style (NNNN-z25-...) → NNNN-stack
+    and named-stack (NNNN-shorthand-z25-...) → NNNN-shorthand.
+    """
+    parts = Path(filename).stem.split("-")
+    if len(parts) < 4:
+        return None
+    if parts[3] in ("z100", "z25", "z6", "z2"):
         return "-".join(parts[:3]) + "-stack"
-    return None
+    return "-".join(parts[:4])
 
 
 def _resolve_stack_specs(specs: List[str], source: Path) -> Optional[Set[str]]:
@@ -609,38 +626,44 @@ def _resolve_stack_specs(specs: List[str], source: Path) -> Optional[Set[str]]:
                 result.add(sn)
             continue
 
-        # Full stack dir name
-        if spec.endswith("-stack"):
+        # Full stack dir name (old-style -stack or named shorthand)
+        if (source / spec).is_dir() and is_stack_dir(source / spec):
             result.add(spec)
         # NNNN-NNNN range
         elif _re.match(r"^\d{1,4}-\d{1,4}$", spec):
             lo, hi = int(spec.split("-")[0]), int(spec.split("-")[1])
-            for d in source.iterdir():
-                if d.is_dir() and d.name.endswith("-stack"):
-                    parts = d.name.split("-")
-                    if len(parts) >= 4 and parts[2].isdigit():
-                        n = int(parts[2])
-                        if lo <= n <= hi:
-                            result.add(d.name)
+            for d in find_stack_dirs(source):
+                parts = d.name.split("-")
+                if len(parts) >= 3 and parts[2].isdigit():
+                    n = int(parts[2])
+                    if lo <= n <= hi:
+                        result.add(d.name)
         # Single frame number
         elif _re.match(r"^\d+$", spec):
             nnnn = spec.zfill(4)
-            for d in source.iterdir():
-                if d.is_dir() and d.name.endswith("-stack"):
-                    parts = d.name.split("-")
-                    if len(parts) >= 4 and parts[2] == nnnn:
-                        result.add(d.name)
+            for d in find_stack_dirs(source):
+                parts = d.name.split("-")
+                if len(parts) >= 3 and parts[2] == nnnn:
+                    result.add(d.name)
         else:
             logging.warning("Cannot parse stack spec '%s', skipping", spec)
     return result
 
 
 def _filename_to_stack_name(filename: str) -> Optional[str]:
-    """Derive the stack directory name from a variant filename."""
+    """Derive the stack directory name from a variant filename.
+
+    Handles both old-style filenames (NNNN-z25-...) → NNNN-stack
+    and named-stack filenames (NNNN-shorthand-z25-...) → NNNN-shorthand.
+    """
     parts = Path(filename).stem.split("-")
-    if len(parts) < 3:
+    if len(parts) < 4:
         return None
-    return "-".join(parts[:3]) + "-stack"
+    if parts[3] in ("z100", "z25", "z6", "z2"):
+        # Old-style: no shorthand
+        return "-".join(parts[:3]) + "-stack"
+    # Named stack: shorthand is the 4th component
+    return "-".join(parts[:4])
 
 
 def _looks_like_chain_spec(s: str) -> bool:
@@ -661,14 +684,14 @@ def _expand_chain_spec_to_all_stacks(
     stacks_filter: Optional[Set[str]] = None,
 ) -> List[str]:
     """Return one canonical filename per stack under source for the given chain spec."""
-    stack_dirs = sorted(d for d in source.iterdir() if d.is_dir() and d.name.endswith("-stack"))
+    stack_dirs = find_stack_dirs(source)
     if stacks_filter is not None:
         stack_dirs = [d for d in stack_dirs if d.name in stacks_filter]
     if not stack_dirs:
         logging.warning("No stack directories found under %s", source)
     filenames = []
     for stack_dir in stack_dirs:
-        base = stack_dir.name[: -len("-stack")]
+        base = stack_dir_to_filename_base(stack_dir.name)
         if spec.tmo_id:
             chain = f"{spec.enfuse_id}-{spec.tmo_id}-{spec.grading_id}"
         else:
@@ -741,6 +764,44 @@ def cmd_generate(
         logging.info("Generate complete — %d variants → %s", new_count, out_desc)
 
 
+def _resolve_stacks_csv_for_generate(
+    csv_rows: List[dict],
+    z_tier: str,
+    source: Path,
+    stacks_filter: Optional[Set[str]],
+) -> List[str]:
+    """Expand ppsp_stacks.csv GenerateSpecs into target filenames for --generate."""
+    filenames: List[str] = []
+    for row in csv_rows:
+        folder = row.get("StackFolder", "").strip()
+        specs_raw = row.get("GenerateSpecs", "").strip()
+        if not folder or not specs_raw:
+            continue
+        if stacks_filter is not None and folder not in stacks_filter:
+            continue
+        stack_dir = source / folder
+        if not stack_dir.is_dir():
+            logging.warning("Stack dir not found: %s", folder)
+            continue
+        file_base = stack_dir_to_filename_base(folder)
+        for spec_str in [s.strip() for s in specs_raw.split(",") if s.strip()]:
+            # Allow spec with or without leading z-tier; normalise to target z_tier.
+            normalised = re.sub(r"^z(100|25|6|2)-", "", spec_str)
+            full_spec = f"{z_tier}-{normalised}"
+            spec = parse_full_chain_spec(full_spec)
+            if spec is None:
+                logging.warning("Cannot parse generate spec '%s' for %s", spec_str, folder)
+                continue
+            chain = spec.enfuse_id
+            if spec.tmo_id:
+                chain += f"-{spec.tmo_id}"
+            chain += f"-{spec.grading_id}"
+            if spec.ct_id:
+                chain += f"-{spec.ct_id}"
+            filenames.append(f"{file_base}-{z_tier}-{chain}.jpg")
+    return filenames
+
+
 def _resolve_variants_for_generate(
     variants_arg: str,
     z_tier: str,
@@ -783,14 +844,24 @@ def _resolve_variants_for_generate(
 
     if p.suffix.lower() == ".csv" and p.exists():
         with open(p, encoding="utf-8", newline="") as fh:
-            rows = [
-                row["Filename"]
-                for row in _csv.DictReader(fh, delimiter="\t")
-                if row.get("Generate", "").strip().lower() in _YES_VALUES
-            ]
+            csv_rows = list(_csv.DictReader(fh, delimiter="\t"))
+
+        # Detect format by checking column names.
+        if csv_rows and "StackFolder" in csv_rows[0]:
+            # ppsp_stacks.csv format: expand per-stack GenerateSpecs.
+            return _resolve_stacks_csv_for_generate(csv_rows, z_tier, source, stacks_filter)
+
+        # ppsp_generate.csv format: Filename + Generate columns.
+        filenames_from_csv = [
+            row["Filename"]
+            for row in csv_rows
+            if row.get("Generate", "").strip().lower() in _YES_VALUES
+        ]
         if stacks_filter is not None:
-            rows = [f for f in rows if _filename_to_stack_name(f) in stacks_filter]
-        return [_to_ztier(f, z_tier) for f in rows]
+            filenames_from_csv = [
+                f for f in filenames_from_csv if _filename_to_stack_name(f) in stacks_filter
+            ]
+        return [_to_ztier(f, z_tier) for f in filenames_from_csv]
 
     if p.suffix.lower() == ".txt" and p.exists():
         lines = [ln.strip() for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
@@ -866,15 +937,18 @@ def _generate_one(
             export_at_resolution(full_res_copies[0], source, resolution, quality=quality, redo=redo)
             return True
 
-    # Derive stack dir from filename convention
-    # Filename: YYYYMMDDHHMMSS-CCCxxx-NNNN-chain.jpg
-    # Stack dir: YYYYMMDDHHMMSS-CCCxxx-NNNN-stack/
+    # Derive stack dir from filename convention.
+    # Old-style: YYYYMMDDHHMMSS-CCCxxx-NNNN-z25-...  → NNNN-stack/
+    # Named:     YYYYMMDDHHMMSS-CCCxxx-NNNN-shrt-z25-...  → NNNN-shrt/
     parts = filename.split("-")
     if len(parts) < 4:
         logging.warning("Cannot derive stack dir from %s", filename)
         return False
-    stack_base = "-".join(parts[:3]) + "-stack"
-    stack_dir = source / stack_base
+    stack_dir_name = _filename_to_stack_name(filename)
+    if not stack_dir_name:
+        logging.warning("Cannot derive stack dir from %s", filename)
+        return False
+    stack_dir = source / stack_dir_name
     if not stack_dir.is_dir():
         logging.warning("Stack dir not found: %s", stack_dir)
         return False
@@ -890,7 +964,7 @@ def _generate_one(
         return False
 
     # Combined outputs live in the z-tier subfolder (mirrors process_stack layout)
-    out_base = "-".join(parts[:3])  # e.g. "20260411152701-m4aens-2324"
+    out_base = stack_dir_to_filename_base(stack_dir.name)  # e.g. "20260411152701-m4aens-2324" or with shorthand
     z_dir = stack_dir / spec.z_tier
     z_dir.mkdir(exist_ok=True)
 
@@ -996,9 +1070,7 @@ def cmd_arws_enhance(
 def cmd_cleanup(source: Path) -> None:
     """Remove z-tier discovery folders and the variants/ folder — see README.md § cleanup."""
     removed = 0
-    for stack_dir in source.iterdir():
-        if not stack_dir.is_dir() or not stack_dir.name.endswith("-stack"):
-            continue
+    for stack_dir in find_stack_dirs(source):
         for z_dir in stack_dir.iterdir():
             if z_dir.is_dir() and z_dir.name in ("z100", "z25", "z6", "z2"):
                 shutil.rmtree(z_dir)
@@ -1010,6 +1082,138 @@ def cmd_cleanup(source: Path) -> None:
         removed += 1
 
     logging.info("Cleanup removed %d directories", removed)
+
+
+# ---------------------------------------------------------------------------
+# Naming
+# ---------------------------------------------------------------------------
+
+
+@_timed_cmd
+def cmd_name(
+    source: Path,
+    stacks_specs: Optional[List[str]] = None,
+    title: Optional[str] = None,
+    csv_path: Optional[Path] = None,
+    redo: bool = False,
+) -> None:
+    """Name stacks interactively, from CSV, or inline — see README.md § Naming."""
+    import csv as _csv
+
+    # Always sync ppsp_stacks.csv first.
+    existing = load_stacks_csv(source)
+    rows = build_stacks_csv_rows(source, existing)
+
+    stacks_filter = _resolve_stack_specs(stacks_specs or [], source) if stacks_specs else None
+
+    if csv_path is not None:
+        # CSV mode: apply titles from the supplied stacks CSV.
+        _name_from_csv(source, csv_path, rows, redo=redo)
+    elif title is not None:
+        # Inline mode: apply a single title to the one selected stack.
+        targets = [
+            d for d in find_stack_dirs(source)
+            if stacks_filter is None or d.name in stacks_filter
+        ]
+        if len(targets) != 1:
+            logging.error(
+                "Inline title requires exactly one stack; got %d matching stacks", len(targets)
+            )
+        else:
+            _name_apply_one(targets[0], title, source, rows, redo=redo)
+            rows = build_stacks_csv_rows(source, rows)
+    else:
+        # Interactive mode: prompt for each selected (or all) stack.
+        targets = [
+            d for d in find_stack_dirs(source)
+            if stacks_filter is None or d.name in stacks_filter
+        ]
+        rows_by_folder = {r["StackFolder"]: r for r in rows}
+        for stack_dir in targets:
+            row = rows_by_folder.get(stack_dir.name, {})
+            existing_title = row.get("Title", "")
+            prefix = f"\nStack: {stack_dir.name}  ({row.get('Photos', '?')} photos)"
+            if existing_title:
+                prefix += f"\n  Current: {existing_title}"
+            try:
+                answer = input(prefix + "\n  Title (Enter to keep): ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                break
+            if answer:
+                _name_apply_one(stack_dir, answer, source, rows, redo=redo)
+                rows = build_stacks_csv_rows(source, rows)
+                rows_by_folder = {r["StackFolder"]: r for r in rows}
+
+    save_stacks_csv(source, rows)
+    logging.info("ppsp_stacks.csv updated: %s", source / STACKS_CSV)
+
+
+def _name_apply_one(
+    stack_dir: Path,
+    title: str,
+    source: Path,
+    rows: List[dict],
+    redo: bool = False,
+) -> None:
+    """Apply title to one stack: rename folder+files, write metadata, update rows in-place."""
+    old_name = stack_dir.name
+    new_dir = rename_stack(stack_dir, title, source)
+    if new_dir is None:
+        return
+    write_metadata_to_stack(new_dir, title)
+    shorthand = title_to_shorthand(title)
+    for row in rows:
+        if row["StackFolder"] == old_name or row["StackFolder"] == new_dir.name:
+            row["StackFolder"] = new_dir.name
+            row["Title"] = title
+            row["Shorthand"] = shorthand
+            break
+    else:
+        rows.append({
+            "StackFolder": new_dir.name,
+            "Title": title,
+            "Shorthand": shorthand,
+            "Photos": str(sum(
+                1 for f in new_dir.iterdir()
+                if f.is_file() and f.suffix.lower() in (".arw", ".jpg", ".jpeg", ".tif", ".tiff")
+            )),
+            "GenerateSpecs": "",
+        })
+
+
+def _name_from_csv(
+    source: Path,
+    csv_path: Path,
+    rows: List[dict],
+    redo: bool = False,
+) -> None:
+    """Apply titles from a stacks CSV file to all rows with a non-empty Title field."""
+    import csv as _csv
+
+    if not csv_path.exists():
+        logging.error("CSV not found: %s", csv_path)
+        return
+
+    with open(csv_path, encoding="utf-8", newline="") as fh:
+        csv_rows = list(_csv.DictReader(fh, delimiter="\t"))
+
+    rows_by_folder = {r["StackFolder"]: r for r in rows}
+    for csv_row in csv_rows:
+        folder = csv_row.get("StackFolder", "").strip()
+        title = csv_row.get("Title", "").strip()
+        if not title or not folder:
+            continue
+        stack_dir = source / folder
+        if not stack_dir.exists():
+            logging.warning("Stack dir not found: %s", folder)
+            continue
+        prev = rows_by_folder.get(folder, {})
+        if prev.get("Title") == title and not redo:
+            continue
+        _name_apply_one(stack_dir, title, source, rows, redo=redo)
+        # Refresh index after rename may have changed folder name
+        rows_by_folder = {r["StackFolder"]: r for r in rows}
 
 
 # ---------------------------------------------------------------------------
@@ -1032,7 +1236,7 @@ def _detect_workflow_progress(source: Path) -> dict:
     if csv_path.exists():
         state["rename"] = True
 
-    stack_dirs = [d for d in source.iterdir() if d.is_dir() and d.name.endswith("-stack")]
+    stack_dirs = find_stack_dirs(source)
     if stack_dirs:
         state["organize"] = True
 

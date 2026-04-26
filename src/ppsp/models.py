@@ -89,6 +89,11 @@ def parse_chain(filename: str, tmo_ids: Optional[List[str]] = None, ct_ids: Opti
     if len(chain_parts) == 1 and re.fullmatch(r"[a-z]", chain_parts[0]):
         return None
 
+    # Optional title shorthand sits between NNNN and the z-tier in named stacks.
+    # Skip it so the rest of the parse proceeds normally.
+    if chain_parts[0] not in ("z100", "z25", "z6", "z2") and len(chain_parts) > 1:
+        chain_parts = chain_parts[1:]
+
     z_tier = chain_parts[0]
     if z_tier not in ("z100", "z25", "z6", "z2"):
         return None

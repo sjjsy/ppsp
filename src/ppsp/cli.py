@@ -11,6 +11,7 @@ from .commands import (
     cmd_cull,
     cmd_discover,
     cmd_generate,
+    cmd_name,
     cmd_organize,
     cmd_prune,
     cmd_rename,
@@ -91,6 +92,11 @@ def _build_parser():
 
     # Command flags
     cmds = parser.add_argument_group("commands")
+    cmds.add_argument("--name", "-n", nargs="*", metavar="TITLE_OR_CSV",
+                      help="Name stacks: -n (interactive all), -n ppsp_stacks.csv (from CSV), "
+                           "-s NNNN -n 'My Title' (inline single stack), "
+                           "-s NNNN NNNN -n (interactive for those stacks). "
+                           "Creates/updates ppsp_stacks.csv.")
     cmds.add_argument("--rename", "-r", nargs="*", metavar="FILE",
                       help="Normalize filenames and write ppsp_photos.csv")
     cmds.add_argument("--organize", "-o", nargs="*", metavar="FILE",
@@ -126,7 +132,23 @@ def main(argv=None) -> None:
         launch(source)
         return
 
-    if args.rename is not None:
+    if args.name is not None:
+        name_args = args.name  # list, possibly empty
+        title: str | None = None
+        csv_path: Path | None = None
+        if len(name_args) == 1:
+            p = Path(name_args[0])
+            if not p.is_absolute():
+                p = source / name_args[0]
+            if p.suffix.lower() == ".csv":
+                csv_path = p
+            else:
+                title = name_args[0]
+        elif len(name_args) > 1:
+            title = " ".join(name_args)
+        cmd_name(source, stacks_specs=stacks_specs, title=title, csv_path=csv_path, redo=args.redo)
+
+    elif args.rename is not None:
         files = [Path(f) for f in args.rename] if args.rename else []
         cmd_rename(files, source,
                    default_model=args.default_model,
