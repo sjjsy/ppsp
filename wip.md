@@ -14,7 +14,7 @@ content here and summarise into journal.md and possibly design.md.
 Motivation: In many cases the top 20 stacks/photos from a photoshoot are important enough to deserve their own human name.
 This helps when sharing, publishing and discussing the images.
 We should allow the user the optional step of specifying short human names or titles for the images after culling. It should be its own command and phase and have its own flags (e.g. --name/-n) and be independent and it should be possible to redo/update the naming.
-The given titles should be stored in the image metadata (of all variants and generates but also the original ARWs and JPEGs) such that they are never lost, because naming the stacks is a lot of work for the user, and losing the names is frustrating.
+The given titles should be stored in the image metadata (of all variants and generates but also the original ARWs and JPEGs; using the standard metadata formats EXIF and XMP) such that they are never lost, because naming the stacks is a lot of work for the user, and losing the names is frustrating.
 However, short filesystem optimized versions of the titles should also be added to the file names after the image/stack number.
 For example: the image/stack 2441 could be added the title "Bedroom B from the door to the window" and this could later result in the following:
      `20260415115544-m4aens-2441-bbfdtw` -- the stack folder
