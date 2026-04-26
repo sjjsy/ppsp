@@ -195,13 +195,15 @@ def test_build_stacks_csv_rows(tmp_path):
     d1 = tmp_path / "20260415115544-m4aens-2441-stack"
     d1.mkdir()
     (d1 / "20260415115544-m4aens-2441-a.arw").touch()
-    (d1 / "20260415115544-m4aens-2441-b.jpg").touch()
+    (d1 / "20260415115544-m4aens-2441-b.jpg").touch()  # derivative, not counted
 
     rows = build_stacks_csv_rows(tmp_path)
     assert len(rows) == 1
     assert rows[0]["StackFolder"] == d1.name
-    assert rows[0]["Photos"] == "2"
+    assert rows[0]["RawPhotoCount"] == "1"  # only ARW
     assert rows[0]["Title"] == ""
+    assert rows[0]["Tags"] == ""
+    assert rows[0]["Rating"] == ""
 
 
 def test_build_stacks_csv_rows_preserves_title(tmp_path):
@@ -209,7 +211,10 @@ def test_build_stacks_csv_rows_preserves_title(tmp_path):
     d1.mkdir()
 
     existing = [{"StackFolder": d1.name, "Title": "Bedroom", "Shorthand": "b",
-                 "Photos": "0", "GenerateSpecs": "z25-sel4-dvi1"}]
+                 "RawPhotoCount": "0", "Tags": "interior", "Rating": "4",
+                 "GenerateSpecs": "z25-sel4-dvi1"}]
     rows = build_stacks_csv_rows(tmp_path, existing)
     assert rows[0]["Title"] == "Bedroom"
+    assert rows[0]["Tags"] == "interior"
+    assert rows[0]["Rating"] == "4"
     assert rows[0]["GenerateSpecs"] == "z25-sel4-dvi1"

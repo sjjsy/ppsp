@@ -147,7 +147,7 @@ def main(argv=None) -> None:
                 title = name_args[0]
         elif len(name_args) > 1:
             title = " ".join(name_args)
-        cmd_name(source, stacks_specs=stacks_specs, title=title, csv_path=csv_path, redo=args.redo)
+        cmd_name(source, stacks_specs=stacks_specs, title=title, csv_path=csv_path, redo=args.redo, batch=args.batch)
 
     elif args.rename is not None:
         files = [Path(f) for f in args.rename] if args.rename else []

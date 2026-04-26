@@ -15,6 +15,7 @@ from .export import export_variants as _export_variants
 from .models import ChainSpec, StackType, parse_chain
 from .naming import (
     STACKS_CSV,
+    _RAW_EXTS,
     build_stacks_csv_rows,
     find_stack_dirs,
     is_stack_dir,
@@ -24,6 +25,7 @@ from .naming import (
     stack_dir_to_filename_base,
     title_to_shorthand,
     write_metadata_to_stack,
+    write_sidecar,
 )
 from .processing import (
     apply_grading,
@@ -405,10 +407,9 @@ def cmd_name(
     title: Optional[str] = None,
     csv_path: Optional[Path] = None,
     redo: bool = False,
+    batch: bool = False,
 ) -> None:
     """Name stacks interactively, from CSV, or inline — see README.md § Naming."""
-    import csv as _csv
-
     # Always sync ppsp_stacks.csv first.
     existing = load_stacks_csv(source)
     rows = build_stacks_csv_rows(source, existing)
@@ -418,6 +419,7 @@ def cmd_name(
     if csv_path is not None:
         # CSV mode: apply titles from the supplied stacks CSV.
         _name_from_csv(source, csv_path, rows, redo=redo)
+
     elif title is not None:
         # Inline mode: apply a single title to the one selected stack.
         targets = [
@@ -431,28 +433,50 @@ def cmd_name(
         else:
             _name_apply_one(targets[0], title, source, rows, redo=redo)
             rows = build_stacks_csv_rows(source, rows)
-    else:
-        # Interactive mode: prompt for each selected (or all) stack.
-        targets = [
-            d for d in find_stack_dirs(source)
-            if stacks_filter is None or d.name in stacks_filter
-        ]
-        rows_by_folder = {r["StackFolder"]: r for r in rows}
-        for stack_dir in targets:
-            row = rows_by_folder.get(stack_dir.name, {})
-            existing_title = row.get("Title", "")
-            prefix = f"\nStack: {stack_dir.name}  ({row.get('Photos', '?')} photos)"
-            if existing_title:
-                prefix += f"\n  Current: {existing_title}"
+
+    elif not batch:
+        # Interactive mode: offer one-by-one or CSV-edit.
+        print("\nHow would you like to name stacks?")
+        print("  [a] Name one-by-one in terminal (default)")
+        print("  [b] Open ppsp_stacks.csv for editing")
+        try:
+            choice = input("Choice [a/b]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            choice = ""
+
+        if choice == "b":
+            # Write CSV, open in system editor, re-ingest on return.
+            save_stacks_csv(source, rows)
+            edit_csv = source / STACKS_CSV
             try:
-                answer = input(prefix + "\n  Title (Enter to keep): ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print()
-                break
-            if answer:
-                _name_apply_one(stack_dir, answer, source, rows, redo=redo)
-                rows = build_stacks_csv_rows(source, rows)
-                rows_by_folder = {r["StackFolder"]: r for r in rows}
+                import subprocess as _sp
+                _sp.Popen(["xdg-open", str(edit_csv)])
+            except OSError as exc:
+                logging.warning("Could not open CSV: %s", exc)
+            input(f"\nEditing {edit_csv.name} — press Enter when done...")
+            _name_from_csv(source, edit_csv, rows, redo=redo)
+        else:
+            # One-by-one prompting.
+            targets = [
+                d for d in find_stack_dirs(source)
+                if stacks_filter is None or d.name in stacks_filter
+            ]
+            rows_by_folder = {r["StackFolder"]: r for r in rows}
+            for stack_dir in targets:
+                row = rows_by_folder.get(stack_dir.name, {})
+                existing_title = row.get("Title", "")
+                prefix = f"\nStack: {stack_dir.name}  ({row.get('RawPhotoCount', '?')} RAW files)"
+                if existing_title:
+                    prefix += f"\n  Current: {existing_title}"
+                try:
+                    answer = input(prefix + "\n  Title (Enter to keep): ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    print()
+                    break
+                if answer:
+                    _name_apply_one(stack_dir, answer, source, rows, redo=redo)
+                    rows = build_stacks_csv_rows(source, rows)
+                    rows_by_folder = {r["StackFolder"]: r for r in rows}
 
     save_stacks_csv(source, rows)
     logging.info("ppsp_stacks.csv updated: %s", source / STACKS_CSV)
@@ -464,29 +488,36 @@ def _name_apply_one(
     source: Path,
     rows: List[dict],
     redo: bool = False,
+    tags: str = "",
+    rating: str = "",
 ) -> None:
-    """Apply title to one stack: rename folder+files, write metadata, update rows in-place."""
+    """Apply title/tags/rating to one stack: rename folder+files, write metadata+sidecar, update rows."""
     old_name = stack_dir.name
     new_dir = rename_stack(stack_dir, title, source)
     if new_dir is None:
         return
-    write_metadata_to_stack(new_dir, title)
+    write_metadata_to_stack(new_dir, title, tags=tags, rating=rating)
+    write_sidecar(new_dir, title, tags=tags, rating=rating)
     shorthand = title_to_shorthand(title)
     for row in rows:
         if row["StackFolder"] == old_name or row["StackFolder"] == new_dir.name:
             row["StackFolder"] = new_dir.name
             row["Title"] = title
             row["Shorthand"] = shorthand
+            if tags:
+                row["Tags"] = tags
+            if rating:
+                row["Rating"] = rating
             break
     else:
+        raw_count = sum(1 for f in new_dir.iterdir() if f.is_file() and f.suffix.lower() in _RAW_EXTS)
         rows.append({
             "StackFolder": new_dir.name,
+            "RawPhotoCount": str(raw_count),
             "Title": title,
             "Shorthand": shorthand,
-            "Photos": str(sum(
-                1 for f in new_dir.iterdir()
-                if f.is_file() and f.suffix.lower() in (".arw", ".jpg", ".jpeg", ".tif", ".tiff")
-            )),
+            "Tags": tags,
+            "Rating": rating,
             "GenerateSpecs": "",
         })
 
@@ -497,7 +528,7 @@ def _name_from_csv(
     rows: List[dict],
     redo: bool = False,
 ) -> None:
-    """Apply titles from a stacks CSV file to all rows with a non-empty Title field."""
+    """Apply titles/tags/ratings from a stacks CSV to rows with a non-empty Title field."""
     import csv as _csv
 
     if not csv_path.exists():
@@ -517,10 +548,13 @@ def _name_from_csv(
         if not stack_dir.exists():
             logging.warning("Stack dir not found: %s", folder)
             continue
+        tags = csv_row.get("Tags", "").strip()
+        rating = csv_row.get("Rating", "").strip()
         prev = rows_by_folder.get(folder, {})
-        if prev.get("Title") == title and not redo:
+        if (prev.get("Title") == title and prev.get("Tags") == tags
+                and prev.get("Rating") == rating and not redo):
             continue
-        _name_apply_one(stack_dir, title, source, rows, redo=redo)
+        _name_apply_one(stack_dir, title, source, rows, redo=redo, tags=tags, rating=rating)
         # Refresh index after rename may have changed folder name
         rows_by_folder = {r["StackFolder"]: r for r in rows}
 
@@ -1229,6 +1263,7 @@ def _detect_workflow_progress(source: Path) -> dict:
         "organize": False,
         "cull": False,
         "prune": False,
+        "name": False,
         "discover": False,
         "generate": False,
     }
@@ -1252,6 +1287,12 @@ def _detect_workflow_progress(source: Path) -> dict:
         stack_names = {d.name for d in stack_dirs}
         if stack_names and stack_names.issubset(cull_bases):
             state["prune"] = True
+
+    stacks_csv = source / STACKS_CSV
+    if stacks_csv.exists():
+        _srows = load_stacks_csv(source)
+        if any(r.get("Title") for r in _srows):
+            state["name"] = True
 
     variants_dir = source / "variants"
     if variants_dir.exists() and list(variants_dir.glob("*.jpg")):
@@ -1322,14 +1363,14 @@ def run_full_workflow(
         completed = [k for k, v in progress.items() if v]
         if completed:
             logging.info("Progress detected: %s already done.", ", ".join(completed))
-            step_order = ["rename", "organize", "cull", "prune", "discover", "generate"]
+            step_order = ["rename", "organize", "cull", "prune", "name", "discover", "generate"]
             first_pending = next((s for s in step_order if not progress[s]), None)
             if first_pending:
                 logging.info("Resuming from: %s", first_pending)
                 # If prune is done but discover is not, offer choice to re-cull or proceed.
                 if progress["prune"] and not progress["discover"]:
                     ans = input(
-                        "Cull and prune already done. Proceed to variant discovery? "
+                        "Cull and prune already done. Proceed to stack naming/variant discovery? "
                         "[Y/n, or 'r' to re-cull stacks]: "
                     ).strip().lower()
                     if ans == "r":
@@ -1376,7 +1417,10 @@ def run_full_workflow(
     if not skip("prune") and _prompt("Step 5: Prune rejected stacks"):
         cmd_prune(source)
 
-    if not skip("discover") and _prompt("Step 6: Variant discovery"):
+    if not skip("name") and _prompt("Step 6: Name stacks (optional; press n to skip)"):
+        cmd_name(source, batch=batch, redo=redo)
+
+    if not skip("discover") and _prompt("Step 7: Variant discovery"):
         if interactive and not batch:
             from .interactive import run_interactive_discovery
             run_interactive_discovery(
@@ -1393,7 +1437,7 @@ def run_full_workflow(
     if not skip("discover") and not batch:
         variants_dir = source / "variants"
         logging.info("")
-        logging.info("Step 7 — Variant selection. Choose a method:")
+        logging.info("Step 8 — Variant selection. Choose a method:")
         logging.info("  1. Folder-based (default): delete unwanted files from %s/", variants_dir)
         logging.info("     then run --generate variants/ (hard-linked to stack z-tier subfolders)")
         logging.info("  2. CSV-based: edit ppsp_generate.csv, mark keepers with x/y/+ in Generate column")
@@ -1403,7 +1447,7 @@ def run_full_workflow(
         selection_method = "csv" if ans == "2" else "folder"
         input("Press Enter when selection is done...")
 
-    if not skip("generate") and _prompt("Step 8: Generate selected variants"):
+    if not skip("generate") and _prompt("Step 9: Generate selected variants"):
         if selection_method == "csv":
             gen_csv = source / _GENERATE_CSV
             if gen_csv.exists():

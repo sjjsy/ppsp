@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import csv
+import datetime
+import json
 import logging
 import re
 from pathlib import Path
@@ -21,8 +23,11 @@ _FILLER_WORDS = frozenset({
 # Matches both "-stack" suffix dirs and named dirs (YYYYMMDDHHMMSS-CCCxxx-NNNN-suffix).
 _STACK_DIR_RE = re.compile(r"^\d{14}-[a-z0-9]{6}-\d{4}-.+$")
 
+_RAW_EXTS = frozenset({".arw", ".orf"})
+
 STACKS_CSV = "ppsp_stacks.csv"
-_STACKS_CSV_FIELDS = ["StackFolder", "Title", "Shorthand", "Photos", "GenerateSpecs"]
+# Column order: StackFolder, RawPhotoCount, Title, Shorthand, Tags, Rating, GenerateSpecs
+_STACKS_CSV_FIELDS = ["StackFolder", "RawPhotoCount", "Title", "Shorthand", "Tags", "Rating", "GenerateSpecs"]
 
 
 def title_to_shorthand(title: str) -> str:
@@ -85,10 +90,19 @@ def save_stacks_csv(source: Path, rows: List[Dict]) -> None:
         writer.writerows(rows)
 
 
+def _primary_raw(stack_dir: Path) -> Optional[Path]:
+    """Return the first (sorted) RAW file in the stack dir, or None."""
+    raws = sorted(
+        f for f in stack_dir.iterdir()
+        if f.is_file() and f.suffix.lower() in _RAW_EXTS
+    )
+    return raws[0] if raws else None
+
+
 def build_stacks_csv_rows(source: Path, existing: Optional[List[Dict]] = None) -> List[Dict]:
     """Scan source for stack dirs and build/update stacks CSV rows.
 
-    Preserves existing Title, Shorthand, and GenerateSpecs values from prior rows.
+    Preserves existing Title, Shorthand, Tags, Rating, and GenerateSpecs from prior rows.
     """
     existing_by_folder: Dict[str, Dict] = {}
     if existing:
@@ -100,38 +114,74 @@ def build_stacks_csv_rows(source: Path, existing: Optional[List[Dict]] = None) -
         folder_name = stack_dir.name
         prev = existing_by_folder.get(folder_name, {})
 
-        photo_count = sum(
-            1 for f in stack_dir.iterdir()
-            if f.is_file() and f.suffix.lower() in (".arw", ".jpg", ".jpeg", ".tif", ".tiff")
-        )
+        raw_count = sum(1 for f in stack_dir.iterdir() if f.is_file() and f.suffix.lower() in _RAW_EXTS)
 
         title = prev.get("Title", "")
         shorthand = title_to_shorthand(title) if title else ""
         rows.append({
             "StackFolder": folder_name,
+            "RawPhotoCount": str(raw_count),
             "Title": title,
             "Shorthand": shorthand,
-            "Photos": str(photo_count),
+            "Tags": prev.get("Tags", ""),
+            "Rating": prev.get("Rating", ""),
             "GenerateSpecs": prev.get("GenerateSpecs", ""),
         })
 
     return rows
 
 
-def write_title_metadata(path: Path, title: str) -> None:
-    """Write title to image EXIF/XMP/IPTC metadata via exiftool."""
-    run_command(
-        [
-            "exiftool", "-overwrite_original",
-            f"-Title={title}",
-            f"-XMP:Title={title}",
-            f"-IPTC:ObjectName={title}",
-            f"-EXIF:ImageDescription={title}",
-            str(path),
-        ],
-        "write title metadata",
-        check=False,
-    )
+def write_sidecar(stack_dir: Path, title: str, tags: str = "", rating: str = "") -> None:
+    """Write a JSON metadata sidecar alongside the first RAW file in the stack.
+
+    The sidecar (e.g. NNNN-a.json) stores title/tags/rating for change-detection
+    between CSV edits and the embedded EXIF/XMP tags. --cleanup leaves it intact.
+    """
+    primary = _primary_raw(stack_dir)
+    if primary is None:
+        return
+    sidecar = stack_dir / primary.with_suffix(".json").name
+    data = {
+        "title": title,
+        "tags": [t.strip() for t in tags.split(",") if t.strip()],
+        "rating": rating,
+        "updated": datetime.datetime.utcnow().isoformat(),
+    }
+    sidecar.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def load_sidecar(stack_dir: Path) -> dict:
+    """Load the JSON metadata sidecar for this stack, or return {} if absent or unreadable."""
+    primary = _primary_raw(stack_dir)
+    if primary is None:
+        return {}
+    sidecar = stack_dir / primary.with_suffix(".json").name
+    if not sidecar.exists():
+        return {}
+    try:
+        return json.loads(sidecar.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def write_title_metadata(path: Path, title: str, tags: str = "", rating: str = "") -> None:
+    """Write title, tags and rating to image EXIF/XMP/IPTC metadata via exiftool."""
+    cmd = [
+        "exiftool", "-overwrite_original",
+        f"-Title={title}",
+        f"-XMP:Title={title}",
+        f"-IPTC:ObjectName={title}",
+        f"-EXIF:ImageDescription={title}",
+    ]
+    for tag in (t.strip() for t in tags.split(",") if t.strip()):
+        cmd += [f"-IPTC:Keywords={tag}", f"-XMP:Subject={tag}"]
+    if rating:
+        try:
+            cmd.append(f"-XMP:Rating={int(rating)}")
+        except ValueError:
+            pass
+    cmd.append(str(path))
+    run_command(cmd, "write title metadata", check=False)
 
 
 def rename_stack(stack_dir: Path, title: str, source: Path) -> Optional[Path]:
@@ -173,8 +223,8 @@ def rename_stack(stack_dir: Path, title: str, source: Path) -> Optional[Path]:
     return new_dir
 
 
-def write_metadata_to_stack(stack_dir: Path, title: str) -> None:
-    """Write title metadata to all image files in the stack dir (recursively)."""
+def write_metadata_to_stack(stack_dir: Path, title: str, tags: str = "", rating: str = "") -> None:
+    """Write title, tags and rating metadata to all image files in the stack dir (recursively)."""
     for f in stack_dir.rglob("*"):
         if f.is_file() and f.suffix.lower() in (".arw", ".jpg", ".jpeg", ".tif", ".tiff"):
-            write_title_metadata(f, title)
+            write_title_metadata(f, title, tags=tags, rating=rating)

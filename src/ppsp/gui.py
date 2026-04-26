@@ -1208,10 +1208,66 @@ class App:
     def _set_status(self, msg: str) -> None:
         self._progress_text.set(msg)
 
+    def _show_name_dialog(self) -> Optional[object]:
+        """Pre-tab modal for the optional stack naming step. Returns Toplevel or None."""
+        if not find_stack_dirs(self._source):
+            return None
+
+        top = tk.Toplevel(self.root)
+        top.title("Name Stacks (optional)")
+        top.geometry("500x190")
+        top.grab_set()
+
+        tk.Label(top, text="Name your stacks before discovery?",
+                 font=("TkDefaultFont", 11)).pack(pady=10)
+        tk.Label(top,
+                 text="ppsp_stacks.csv will be written and opened for editing.\n"
+                      "Fill in titles (and optionally tags/rating), save, then click Done.",
+                 justify="center", foreground="#555").pack()
+
+        btn_frame = tk.Frame(top)
+        btn_frame.pack(pady=14)
+
+        done_btn: tk.Button
+
+        def _open_csv() -> None:
+            from .naming import build_stacks_csv_rows, load_stacks_csv, save_stacks_csv
+            existing = load_stacks_csv(self._source)
+            save_stacks_csv(self._source, build_stacks_csv_rows(self._source, existing))
+            csv_p = self._source / "ppsp_stacks.csv"
+            try:
+                import subprocess as _sp
+                _sp.Popen(["xdg-open", str(csv_p)])
+            except OSError:
+                pass
+            done_btn.config(state="normal")
+
+        def _done() -> None:
+            from .commands import _name_from_csv
+            from .naming import build_stacks_csv_rows, load_stacks_csv, save_stacks_csv
+            existing = load_stacks_csv(self._source)
+            rows = build_stacks_csv_rows(self._source, existing)
+            csv_p = self._source / "ppsp_stacks.csv"
+            if csv_p.exists():
+                _name_from_csv(self._source, csv_p, rows, redo=False)
+                save_stacks_csv(self._source, rows)
+            top.destroy()
+
+        tk.Button(btn_frame, text="Open CSV", command=_open_csv).pack(side="left", padx=6)
+        done_btn = tk.Button(btn_frame, text="Done", command=_done, state="disabled")
+        done_btn.pack(side="left", padx=6)
+        tk.Button(btn_frame, text="Skip", command=top.destroy).pack(side="left", padx=6)
+
+        return top
+
     def run(self) -> None:
         cull_top = self._show_culling_grid()
         if cull_top is not None:
             self.root.wait_window(cull_top)
+            self._load_stacks()
+        name_top = self._show_name_dialog()
+        if name_top is not None:
+            self.root.wait_window(name_top)
             self._load_stacks()
         self.root.mainloop()
 
