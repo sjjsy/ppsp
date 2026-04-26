@@ -1,15 +1,19 @@
-"""Tkinter GUI for ppsp — launched via ``ppsp --gui`` or the ``ppsp-gui`` entry point.
+"""Tkinter GUI for ppsp — Work in Progress.
 
-Three-tab interface:
-  Tab 1 "Discover"  — select stacks and chains, generate discovery variants
-  Tab 2 "Review"    — per-stack step-by-step pruning (enfuse → TMO → grading)
-  Tab 3 "Export"    — export final variants to full-res out-BBBB/ folder
+Seven-tab interface matching the ppsp workflow:
+  Tab 1 "Rename"   — normalize filenames (ppsp -r)
+  Tab 2 "Organize" — group into per-stack folders (ppsp -o)
+  Tab 3 "Cull"     — select chains, generate culling variants, review/prune stacks
+  Tab 4 "Metadata" — name, tag, and rate stacks (ppsp -n)
+  Tab 5 "Discover" — step-by-step variant selection (enfuse → TMO → grading)
+  Tab 6 "Generate" — export final variants (ppsp -g)
+  Tab 7 "Cleanup"  — remove working folders (ppsp -C)
 
-A culling grid modal appears on startup when cull/ previews are present so the
-user can mark unwanted stacks before entering the main workflow.
+Log panel always visible at the bottom, collapsible; auto-expands during generation.
+Single click moves keyboard focus; double-click or F opens fullscreen; Space selects/unselects.
+Arrow keys navigate the tile grid. 'c' in fullscreen compares with previous image.
 
-Requires tkinter (stdlib).  Pillow is optional for native JPEG thumbnails;
-falls back to ImageMagick ``convert`` if not installed.
+Requires tkinter (stdlib). Pillow optional for thumbnails; falls back to ImageMagick.
 """
 
 from __future__ import annotations
@@ -37,11 +41,18 @@ try:
 except ImportError:
     _PILLOW = False
 
-_THUMB_SIZE = (192, 128)
+_THUMB_SIZE = (384, 256)  # doubled from (192, 128)
+_CULL_THUMB_SIZE = (380, 260)  # for the culling grid
+
 _TILE_BG_DEFAULT = "#f0f0f0"
 _TILE_BG_SELECTED = "#b8d8f8"
+_TILE_BG_FOCUSED = "#fffacd"
+_TILE_BG_FOCUSED_SELECTED = "#80c0f0"
 _TILE_BG_DISCARDED = "#d8d8d8"
 _ROW_BG_FOCUSED = "#ddeeff"
+
+_DISCOVER_COLS = 3  # tiles per row in Discover tab (3 × 392px ≈ fits 1200px)
+_CULL_GRID_COLS = 3  # tiles per row in culling grid
 
 
 def _load_thumb(path: Path, size: Tuple[int, int] = _THUMB_SIZE):
@@ -76,12 +87,15 @@ def _load_thumb(path: Path, size: Tuple[int, int] = _THUMB_SIZE):
 # Tile widget
 # ---------------------------------------------------------------------------
 
-def _make_tile(parent, chain_id: str, img, wins: int, bg: str, on_click, on_double_click=None):
+def _make_tile(parent, chain_id: str, img, wins: int, bg: str,
+               on_click, on_double_click=None, focused: bool = False):
     """Create a clickable image+label tile frame."""
     import tkinter as tk
 
-    frame = tk.Frame(parent, bg=bg, bd=1, relief="raised",
-                     width=_THUMB_SIZE[0] + 8, height=_THUMB_SIZE[1] + 36)
+    bd = 3 if focused else 1
+    relief = "solid" if focused else "raised"
+    frame = tk.Frame(parent, bg=bg, bd=bd, relief=relief,
+                     width=_THUMB_SIZE[0] + 8, height=_THUMB_SIZE[1] + 44)
     frame.pack_propagate(False)
 
     if img:
@@ -106,12 +120,23 @@ def _make_tile(parent, chain_id: str, img, wins: int, bg: str, on_click, on_doub
     return frame
 
 
+def _shortcuts_label(parent, text: str):
+    """Add a compact keyboard shortcuts hint at the bottom of a tab frame."""
+    import tkinter as tk
+    from tkinter import ttk
+    f = ttk.Frame(parent)
+    f.pack(side="bottom", fill="x", padx=6, pady=(0, 2))
+    tk.Label(f, text=text, font=("sans-serif", 8), foreground="#666",
+             anchor="w").pack(side="left")
+    return f
+
+
 # ---------------------------------------------------------------------------
 # Main App
 # ---------------------------------------------------------------------------
 
 class App:
-    """ppsp tkinter application."""
+    """ppsp tkinter application — Work in Progress."""
 
     def __init__(self, source: Path) -> None:
         import tkinter as tk
@@ -124,62 +149,89 @@ class App:
         self.session = load_session(source)
 
         self.root = tk.Tk()
-        self.root.title(f"ppsp — {source.name}")
-        self.root.minsize(900, 600)
+        self.root.title(f"ppsp — {source.name}  [Work in Progress]")
+        self.root.minsize(960, 640)
 
         self._queue: "queue.Queue[Tuple[str, object]]" = queue.Queue()
         self._progress_text = tk.StringVar(value="")
 
-        nb = ttk.Notebook(self.root)
-        nb.pack(fill="both", expand=True, padx=6, pady=6)
-
-        self._discover_frame = ttk.Frame(nb)
-        self._review_frame = ttk.Frame(nb)
-        self._export_frame = ttk.Frame(nb)
-
-        nb.add(self._discover_frame, text=" Discover ")
-        nb.add(self._review_frame, text=" Review ")
-        nb.add(self._export_frame, text=" Export ")
-
-        self._nb = nb
-        nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
-
         # Shared controls state
         self._quality_var = tk.IntVar(value=80)
-        self._size_var = tk.StringVar(value="z25")
+        self._cull_size_var = tk.StringVar(value="z25")   # discovery size in Cull tab
+        self._gen_size_var = tk.StringVar(value="z100")   # export size in Generate tab
         self._resolution_var = tk.StringVar(value="")
         self._viewer_var = tk.StringVar(value="xdg-open")
 
-        # Review state
+        # Discover (step-by-step selection) state
         self._review_sel: Dict[str, Dict[str, Set[str]]] = {}
         self._review_order: List[str] = []
         self._review_step = tk.StringVar(value="enfuse")
         self._review_stack_var = tk.StringVar(value="")
-        self._tile_frames: List[Tuple[str, object]] = []  # (chain_id, frame)
-        self._tile_data: List[Tuple[str, Path]] = []      # (chain_id, path) for fullscreen
+        self._tile_frames: List[Tuple[str, object]] = []   # (chain_id, frame)
+        self._tile_data: List[Tuple[str, Path]] = []       # (chain_id, path) for fullscreen
         self._focused_chain: Optional[str] = None
-        self._focused_tile_frame = None
+        self._tile_idx: int = 0                             # index in _tile_frames
+        self._compare_chain: Optional[str] = None          # for 'c' compare in fullscreen
 
-        # Stacks list keyboard state
-        self._stack_rows: List[Tuple[str, object]] = []   # (sname, frame)
+        # Cull-tab stacks list state
+        self._stack_rows: List[Tuple[str, object]] = []
         self._focused_stack_idx: int = 0
+        self._stack_vars: Dict[str, "tk.BooleanVar"] = {}
+        self._stacks_canvas = None
+        self._stacks_inner = None
+        self._stacks_inner_id = None
+
+        # Generate tab
+        self._export_src_var = tk.StringVar(value="session")
 
         # Log panel state
         self._log_collapsed = False
-        self._log_file_offset = 0
+        self._log_tail_started = False
         self._log_text = None
         self._log_frame = None
         self._log_toggle_btn = None
-        self._log_tail_started = False
 
-        self._build_discover_tab(ENFUSE_VARIANTS, TMO_VARIANTS, GRADING_PRESETS, CT_PRESETS)
-        self._build_review_tab()
-        self._build_export_tab()
+        # Metadata tab state
+        self._meta_entries: List[Dict] = []   # [{sname, title_var, tags_var, rating_var}]
+
+        # Notebook
+        nb = ttk.Notebook(self.root)
+        nb.pack(fill="both", expand=True, padx=6, pady=6)
+        self._nb = nb
+        nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
+        # Build all tabs
+        self._rename_frame = ttk.Frame(nb)
+        self._organize_frame = ttk.Frame(nb)
+        self._cull_frame = ttk.Frame(nb)
+        self._metadata_frame = ttk.Frame(nb)
+        self._discover_frame = ttk.Frame(nb)
+        self._generate_frame = ttk.Frame(nb)
+        self._cleanup_frame = ttk.Frame(nb)
+
+        nb.add(self._rename_frame, text=" Rename ")
+        nb.add(self._organize_frame, text=" Organize ")
+        nb.add(self._cull_frame, text=" Cull ")
+        nb.add(self._metadata_frame, text=" Metadata ")
+        nb.add(self._discover_frame, text=" Discover ")
+        nb.add(self._generate_frame, text=" Generate ")
+        nb.add(self._cleanup_frame, text=" Cleanup ")
+
+        self._build_rename_tab()
+        self._build_organize_tab()
+        self._build_cull_tab(ENFUSE_VARIANTS, TMO_VARIANTS, GRADING_PRESETS, CT_PRESETS)
+        self._build_metadata_tab()
+        self._build_discover_tab()
+        self._build_generate_tab()
+        self._build_cleanup_tab()
+
+        # Log panel (always visible, below notebook)
+        self._build_log_panel()
 
         # Status bar
         status = tk.Label(self.root, textvariable=self._progress_text, anchor="w",
                           relief="sunken", font=("mono", 9))
-        status.pack(side="bottom", fill="x", padx=6, pady=(0, 4))
+        status.pack(side="bottom", fill="x", padx=6, pady=(0, 2))
 
         self._bind_shortcuts()
         self.root.after(200, self._poll_queue)
@@ -189,7 +241,6 @@ class App:
     # ------------------------------------------------------------------
 
     def _component_wins(self, component_id: str) -> int:
-        """Sum wins across all chains that contain this component ID as a dash-separated token."""
         return sum(
             s.wins
             for chain, s in self.session.chain_stats.items()
@@ -203,14 +254,111 @@ class App:
         return self._nb.tab(self._nb.select(), "text").strip()
 
     # ------------------------------------------------------------------
-    # Tab 1 — Discover
+    # Tab 1 — Rename
     # ------------------------------------------------------------------
 
-    def _build_discover_tab(self, enfuse_ids, tmo_ids, grading_ids, ct_ids) -> None:
+    def _build_rename_tab(self) -> None:
         import tkinter as tk
         from tkinter import ttk
 
-        frame = self._discover_frame
+        frame = self._rename_frame
+        tk.Label(frame, text="Normalize RAW filenames and write ppsp_photos.csv",
+                 font=("TkDefaultFont", 10)).pack(pady=(12, 6))
+
+        opts = ttk.LabelFrame(frame, text="Options")
+        opts.pack(fill="x", padx=16, pady=4)
+        ttk.Label(opts, text="Default camera model:").grid(row=0, column=0, sticky="w", padx=6, pady=3)
+        self._rename_model_var = tk.StringVar(value="")
+        ttk.Entry(opts, textvariable=self._rename_model_var, width=24).grid(row=0, column=1, sticky="w")
+        ttk.Label(opts, text="Default lens:").grid(row=1, column=0, sticky="w", padx=6, pady=3)
+        self._rename_lens_var = tk.StringVar(value="")
+        ttk.Entry(opts, textvariable=self._rename_lens_var, width=24).grid(row=1, column=1, sticky="w")
+
+        btn_row = ttk.Frame(frame)
+        btn_row.pack(fill="x", padx=16, pady=8)
+        self._rename_btn = ttk.Button(btn_row, text="▶  Run Rename", command=self._run_rename_cmd)
+        self._rename_btn.pack(side="left")
+        self._rename_progress = ttk.Progressbar(btn_row, mode="indeterminate", length=120)
+        self._rename_progress.pack(side="left", padx=8)
+
+        self._rename_status = tk.StringVar(value="")
+        ttk.Label(frame, textvariable=self._rename_status, foreground="#444").pack(
+            anchor="w", padx=16)
+
+    def _run_rename_cmd(self) -> None:
+        self._rename_btn.state(["disabled"])
+        self._rename_progress.start(10)
+        self._rename_status.set("Running rename…")
+
+        def _run():
+            from .commands import cmd_rename
+            try:
+                cmd_rename([], self.source,
+                           default_model=self._rename_model_var.get(),
+                           default_lens=self._rename_lens_var.get(),
+                           redo=False)
+                self._queue.put(("rename_done", None))
+            except Exception as exc:
+                self._queue.put(("rename_error", str(exc)))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    # ------------------------------------------------------------------
+    # Tab 2 — Organize
+    # ------------------------------------------------------------------
+
+    def _build_organize_tab(self) -> None:
+        import tkinter as tk
+        from tkinter import ttk
+
+        frame = self._organize_frame
+        tk.Label(frame, text="Group files into per-stack folders",
+                 font=("TkDefaultFont", 10)).pack(pady=(12, 6))
+
+        opts = ttk.LabelFrame(frame, text="Options")
+        opts.pack(fill="x", padx=16, pady=4)
+        ttk.Label(opts, text="Time gap (s) to split stacks:").grid(
+            row=0, column=0, sticky="w", padx=6, pady=3)
+        self._organize_gap_var = tk.DoubleVar(value=30.0)
+        ttk.Spinbox(opts, from_=1, to=300, textvariable=self._organize_gap_var,
+                    width=8).grid(row=0, column=1, sticky="w")
+
+        btn_row = ttk.Frame(frame)
+        btn_row.pack(fill="x", padx=16, pady=8)
+        self._organize_btn = ttk.Button(btn_row, text="▶  Run Organize",
+                                        command=self._run_organize_cmd)
+        self._organize_btn.pack(side="left")
+        self._organize_progress = ttk.Progressbar(btn_row, mode="indeterminate", length=120)
+        self._organize_progress.pack(side="left", padx=8)
+
+        self._organize_status = tk.StringVar(value="")
+        ttk.Label(frame, textvariable=self._organize_status, foreground="#444").pack(
+            anchor="w", padx=16)
+
+    def _run_organize_cmd(self) -> None:
+        self._organize_btn.state(["disabled"])
+        self._organize_progress.start(10)
+        self._organize_status.set("Running organize…")
+
+        def _run():
+            from .commands import cmd_organize
+            try:
+                cmd_organize([], self.source, gap=float(self._organize_gap_var.get()), redo=False)
+                self._queue.put(("organize_done", None))
+            except Exception as exc:
+                self._queue.put(("organize_error", str(exc)))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    # ------------------------------------------------------------------
+    # Tab 3 — Cull (chain configurator + generate culling variants)
+    # ------------------------------------------------------------------
+
+    def _build_cull_tab(self, enfuse_ids, tmo_ids, grading_ids, ct_ids) -> None:
+        import tkinter as tk
+        from tkinter import ttk
+
+        frame = self._cull_frame
 
         # Left pane: stacks list
         left = ttk.LabelFrame(frame, text="Stacks")
@@ -223,19 +371,20 @@ class App:
         canvas.pack(side="left", fill="both", expand=True)
 
         self._stacks_inner = tk.Frame(canvas)
-        self._stacks_inner_id = canvas.create_window((0, 0), window=self._stacks_inner, anchor="nw")
+        self._stacks_inner_id = canvas.create_window(
+            (0, 0), window=self._stacks_inner, anchor="nw")
         self._stacks_inner.bind("<Configure>",
             lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.bind("<Configure>",
             lambda e: canvas.itemconfig(self._stacks_inner_id, width=e.width))
-
-        self._stack_vars: Dict[str, "tk.BooleanVar"] = {}
         self._stacks_canvas = canvas
 
-        btn_sel_all = ttk.Button(left, text="Select all", command=self._select_all_stacks)
-        btn_sel_all.pack(side="bottom", fill="x", padx=4, pady=2)
-        btn_desel_all = ttk.Button(left, text="Deselect all", command=self._deselect_all_stacks)
-        btn_desel_all.pack(side="bottom", fill="x", padx=4, pady=2)
+        self._stack_vars = {}
+
+        ttk.Button(left, text="Select all",
+                   command=self._select_all_stacks).pack(side="bottom", fill="x", padx=4, pady=2)
+        ttk.Button(left, text="Deselect all",
+                   command=self._deselect_all_stacks).pack(side="bottom", fill="x", padx=4, pady=2)
 
         # Right pane: chain configurator
         right = ttk.LabelFrame(frame, text="Chain configurator")
@@ -269,7 +418,7 @@ class App:
         ttk.Label(ctrl, text="Size:").grid(row=0, column=0, sticky="w")
         for i, (key, label) in enumerate([("z2", "micro"), ("z6", "quarter"),
                                            ("z25", "half"), ("z100", "full")]):
-            ttk.Radiobutton(ctrl, text=f"{key}/{label}", variable=self._size_var,
+            ttk.Radiobutton(ctrl, text=f"{key}/{label}", variable=self._cull_size_var,
                             value=key).grid(row=0, column=i + 1, sticky="w")
 
         ttk.Label(ctrl, text="Quality:").grid(row=1, column=0, sticky="w")
@@ -278,7 +427,7 @@ class App:
 
         ttk.Label(ctrl, text="Viewer:").grid(row=2, column=0, sticky="w")
         ttk.Entry(ctrl, textvariable=self._viewer_var, width=18).grid(
-            row=2, column=1, columnspan=3, sticky="ew")
+            row=2, column=1, columnspan=4, sticky="ew")
 
         ttk.Separator(right).pack(fill="x", pady=4)
 
@@ -288,13 +437,23 @@ class App:
             ttk.Button(preset_frame, text=preset,
                        command=lambda p=preset: self._apply_preset(p)).pack(side="left", padx=2)
 
-        self._gen_btn = ttk.Button(right, text="▶  Generate", command=self._generate)
-        self._gen_btn.pack(fill="x", padx=4, pady=8)
+        self._gen_btn = ttk.Button(right, text="▶  Generate variants", command=self._generate)
+        self._gen_btn.pack(fill="x", padx=4, pady=4)
 
         self._progress_bar = ttk.Progressbar(right, mode="indeterminate")
         self._progress_bar.pack(fill="x", padx=4, pady=2)
 
+        ttk.Separator(right).pack(fill="x", pady=4)
+        ttk.Button(right, text="Review cull grid…",
+                   command=self._open_cull_review).pack(fill="x", padx=4, pady=4)
+
+        _shortcuts_label(frame,
+            "← → move stack  ·  Enter toggle  ·  Select all/Deselect all for batch")
         self._load_stacks()
+
+    # ------------------------------------------------------------------
+    # Stacks list helpers (shared by Cull tab)
+    # ------------------------------------------------------------------
 
     def _load_stacks(self) -> None:
         import tkinter as tk
@@ -321,7 +480,6 @@ class App:
 
             parts = sname.split("-")
             short_id = parts[2] if len(parts) >= 3 else sname
-            # Include shorthand if present (named stack)
             if len(parts) >= 4 and not parts[3].startswith("z"):
                 short_id = f"{parts[2]}-{parts[3]}"
 
@@ -343,13 +501,13 @@ class App:
     def _navigate_stacks(self, delta: int) -> None:
         if not self._stack_rows:
             return
-        # Un-highlight current
         _, old_frame = self._stack_rows[self._focused_stack_idx]
         old_frame.configure(bg="SystemButtonFace")  # type: ignore[union-attr]
         self._focused_stack_idx = (self._focused_stack_idx + delta) % len(self._stack_rows)
         _, new_frame = self._stack_rows[self._focused_stack_idx]
         new_frame.configure(bg=_ROW_BG_FOCUSED)  # type: ignore[union-attr]
-        self._stacks_canvas.update_idletasks()
+        if self._stacks_canvas:
+            self._stacks_canvas.update_idletasks()
 
     def _toggle_focused_stack(self) -> None:
         if not self._stack_rows:
@@ -389,12 +547,13 @@ class App:
             messagebox.showwarning("No variants", "Select at least one variant option.")
             return
 
-        z_tier = self._size_var.get()
+        z_tier = self._cull_size_var.get()
         quality = self._quality_var.get()
 
         self._gen_btn.state(["disabled"])
         self._progress_bar.start(10)
         self._set_status(f"Generating {len(stacks)} stacks…")
+        self._uncollapse_log()
 
         def _run():
             from .commands import cmd_discover
@@ -408,14 +567,378 @@ class App:
         threading.Thread(target=_run, daemon=True).start()
 
     # ------------------------------------------------------------------
-    # Tab 2 — Review
+    # Culling grid (review cull/ previews, mark stacks to prune)
     # ------------------------------------------------------------------
 
-    def _build_review_tab(self) -> None:
+    def _open_cull_review(self) -> None:
+        """Open the culling grid modal so the user can mark stacks for pruning."""
         import tkinter as tk
         from tkinter import ttk
 
-        frame = self._review_frame
+        cull_dir = self.source / "cull"
+        previews = sorted(cull_dir.glob("*.jpg")) if cull_dir.exists() else []
+        if not previews:
+            from tkinter import messagebox
+            messagebox.showinfo("No cull previews",
+                                "Run 'ppsp -c' first to generate culling previews.")
+            return
+
+        top = tk.Toplevel(self.root)
+        top.title("Cull — keep or prune stacks")
+        top.geometry("1200x760")
+        top.grab_set()
+
+        # Load title/tags/rating from CSV for display in fullscreen
+        from .naming import load_stacks_csv
+        stacks_meta: Dict[str, Dict] = {}
+        for row in load_stacks_csv(self.source):
+            stacks_meta[row.get("StackFolder", "")] = row
+
+        help_text = ("Click for focus  ·  Space toggle prune  ·  "
+                     "Double-click / F fullscreen  ·  Esc close")
+        ttk.Label(top, text=help_text,
+                  font=("sans-serif", 9), foreground="#555").pack(pady=4)
+
+        cull_states: Dict[str, bool] = {}
+        cull_imgs: Dict[str, object] = {}
+
+        canvas = tk.Canvas(top)
+        vsb = ttk.Scrollbar(top, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side="right", fill="y")
+        canvas.pack(fill="both", expand=True, padx=6, pady=4)
+
+        inner = tk.Frame(canvas)
+        inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(inner_id, width=e.width))
+
+        tile_frames: Dict[str, object] = {}
+        _focused_cull = [None]  # currently focused stack name
+        COLS = _CULL_GRID_COLS
+        row_frame = None
+
+        def _cull_bg(sname: str) -> str:
+            keep = cull_states.get(sname, True)
+            focused = _focused_cull[0] == sname
+            if not keep:
+                return "#b0b0b0"
+            if focused:
+                return _ROW_BG_FOCUSED
+            return "#f0f0f0"
+
+        def _refresh_tile(sname: str) -> None:
+            f = tile_frames.get(sname)
+            if f is None:
+                return
+            bg = _cull_bg(sname)
+            f.configure(bg=bg)  # type: ignore[union-attr]
+            for child in f.winfo_children():  # type: ignore[union-attr]
+                try:
+                    child.configure(bg=bg)
+                except Exception:
+                    pass
+
+        def _set_focus(sname: str) -> None:
+            old = _focused_cull[0]
+            _focused_cull[0] = sname
+            if old and old != sname:
+                _refresh_tile(old)
+            _refresh_tile(sname)
+
+        def _toggle(sname: str) -> None:
+            cull_states[sname] = not cull_states.get(sname, True)
+            _refresh_tile(sname)
+
+        def _open_fullscreen(sname: str) -> None:
+            ordered_names = [p.name.split("_count")[0] for p in previews]
+            start_idx = ordered_names.index(sname) if sname in ordered_names else 0
+            _idx = [start_idx]
+            _prev_idx = [start_idx]
+
+            fs = tk.Toplevel(top)
+            fs.title("Fullscreen Cull")
+            fs.geometry("1280x900")
+            fs.grab_set()
+
+            meta_lbl = tk.Label(fs, text="", font=("mono", 10), anchor="w")
+            meta_lbl.pack(side="top", fill="x", padx=8, pady=4)
+
+            info_lbl = tk.Label(fs, text="", font=("mono", 9), foreground="#555")
+            info_lbl.pack(side="top")
+
+            img_lbl = tk.Label(fs, bg="black")
+            img_lbl.pack(fill="both", expand=True)
+            _ref = [None]
+
+            def _fs_show(i: int) -> None:
+                _prev_idx[0] = _idx[0]
+                _idx[0] = i % len(previews)
+                pv = previews[_idx[0]]
+                sn = pv.name.split("_count")[0]
+                keep = cull_states.get(sn, True)
+                img = _load_thumb(pv, (1180, 820))
+                _ref[0] = img
+                img_lbl.configure(image=img)
+
+                # Show title/tags/rating if available
+                meta = stacks_meta.get(sn, {})
+                title = meta.get("Title", "")
+                tags = meta.get("Tags", "")
+                rating = meta.get("Rating", "")
+                meta_parts = []
+                if title:
+                    meta_parts.append(f"Title: {title}")
+                if tags:
+                    meta_parts.append(f"Tags: {tags}")
+                if rating:
+                    meta_parts.append(f"Rating: {rating}")
+                meta_lbl.configure(text="  ·  ".join(meta_parts) if meta_parts else sn)
+
+                info_lbl.configure(
+                    text=f"{_idx[0] + 1}/{len(previews)}: {sn}  "
+                         f"{'KEEP' if keep else 'PRUNE'}"
+                         "    Space=toggle  ←/→=browse  c=compare  Esc=close"
+                )
+
+            def _fs_toggle(_e=None) -> None:
+                sn = previews[_idx[0]].name.split("_count")[0]
+                _toggle(sn)
+                _fs_show(_idx[0])
+
+            def _fs_compare(_e=None) -> None:
+                if _prev_idx[0] != _idx[0]:
+                    cur = _idx[0]
+                    _fs_show(_prev_idx[0])
+                    _prev_idx[0] = cur  # swap so pressing c again goes back
+
+            def _fs_fullscreen_key(_e=None) -> None:
+                pass  # already fullscreen
+
+            fs.bind("<Escape>", lambda _e: fs.destroy())
+            fs.bind("<Left>", lambda _e: _fs_show(_idx[0] - 1))
+            fs.bind("<Right>", lambda _e: _fs_show(_idx[0] + 1))
+            fs.bind("<space>", _fs_toggle)
+            fs.bind("c", _fs_compare)
+            fs.bind("C", _fs_compare)
+            fs.focus_set()
+            _fs_show(_idx[0])
+
+        for pidx, pv in enumerate(previews):
+            sname = pv.name.split("_count")[0]
+            cull_states[sname] = True
+            if pidx % COLS == 0:
+                row_frame = tk.Frame(inner)
+                row_frame.pack(fill="x", pady=2)
+
+            f = tk.Frame(row_frame, bg="#f0f0f0", bd=1, relief="raised",
+                         width=_CULL_THUMB_SIZE[0] + 10, height=_CULL_THUMB_SIZE[1] + 44)
+            f.pack_propagate(False)
+            f.pack(side="left", padx=3, pady=2)
+            tile_frames[sname] = f
+
+            img = _load_thumb(pv, _CULL_THUMB_SIZE)
+            cull_imgs[sname] = img
+            if img:
+                il = tk.Label(f, image=img, bg="#f0f0f0")
+                il.image = img
+                il.pack(pady=(3, 0))
+                il.bind("<Button-1>", lambda _e, s=sname: _set_focus(s))
+                il.bind("<Double-Button-1>", lambda _e, s=sname: _open_fullscreen(s))
+
+            parts = sname.split("-")
+            short = parts[2] if len(parts) >= 3 else sname
+            tl = tk.Label(f, text=short, bg="#f0f0f0", font=("mono", 9))
+            tl.pack(pady=(1, 3))
+            tl.bind("<Button-1>", lambda _e, s=sname: _set_focus(s))
+            f.bind("<Button-1>", lambda _e, s=sname: _set_focus(s))
+
+        # Space key toggles focused stack; F opens fullscreen
+        def _on_space(_e=None) -> None:
+            sn = _focused_cull[0]
+            if sn:
+                _toggle(sn)
+
+        def _on_f(_e=None) -> None:
+            sn = _focused_cull[0]
+            if sn:
+                _open_fullscreen(sn)
+
+        top.bind("<space>", _on_space)
+        top.bind("f", _on_f)
+        top.bind("F", _on_f)
+
+        # Bottom bar
+        bot = ttk.Frame(top)
+        bot.pack(fill="x", padx=12, pady=8)
+        ttk.Button(bot, text="Cancel", command=top.destroy).pack(side="right", padx=4)
+
+        def _confirm() -> None:
+            prune_names = [s for s, keep in cull_states.items() if not keep]
+            if prune_names:
+                cull_d = self.source / "cull"
+                for sname in prune_names:
+                    for f in cull_d.glob(f"{sname}_count*.jpg"):
+                        try:
+                            f.unlink()
+                        except OSError:
+                            pass
+                from .commands import cmd_prune
+                cmd_prune(self.source)
+                self._load_stacks()
+            top.destroy()
+
+        ttk.Button(bot, text="✓ Confirm culling", command=_confirm).pack(side="right", padx=4)
+        ttk.Label(bot, text="Dimmed stacks will be pruned.",
+                  foreground="#555").pack(side="left")
+
+    # ------------------------------------------------------------------
+    # Tab 4 — Metadata (name, tag, rate stacks)
+    # ------------------------------------------------------------------
+
+    def _build_metadata_tab(self) -> None:
+        import tkinter as tk
+        from tkinter import ttk
+
+        frame = self._metadata_frame
+
+        hdr = ttk.Frame(frame)
+        hdr.pack(fill="x", padx=8, pady=4)
+        tk.Label(hdr, text="Name, tag and rate stacks",
+                 font=("TkDefaultFont", 10)).pack(side="left")
+        ttk.Button(hdr, text="↺ Reload",
+                   command=self._load_metadata).pack(side="right", padx=4)
+        ttk.Button(hdr, text="✓ Save All",
+                   command=self._save_metadata).pack(side="right", padx=4)
+        ttk.Button(hdr, text="Rename stack dirs",
+                   command=self._rename_stack_dirs).pack(side="right", padx=4)
+
+        col_hdr = tk.Frame(frame, bg="#ddd")
+        col_hdr.pack(fill="x", padx=8, pady=(0, 2))
+        for text, w in [("Stack", 22), ("Title", 28), ("Tags", 22), ("Rating", 8)]:
+            tk.Label(col_hdr, text=text, bg="#ddd", font=("mono", 9, "bold"),
+                     width=w, anchor="w").pack(side="left", padx=2)
+
+        canvas = tk.Canvas(frame)
+        vsb = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side="right", fill="y")
+        canvas.pack(fill="both", expand=True, padx=8)
+
+        self._meta_inner = tk.Frame(canvas)
+        meta_id = canvas.create_window((0, 0), window=self._meta_inner, anchor="nw")
+        self._meta_inner.bind("<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>",
+            lambda e: canvas.itemconfig(meta_id, width=e.width))
+
+        self._meta_status = tk.StringVar(value="")
+        ttk.Label(frame, textvariable=self._meta_status, foreground="#555").pack(
+            anchor="w", padx=8, pady=2)
+
+        _shortcuts_label(frame, "Edit fields inline  ·  Save All writes ppsp_stacks.csv + sidecars  ·  Rename stack dirs applies shorthands")
+        self._load_metadata()
+
+    def _load_metadata(self) -> None:
+        import tkinter as tk
+        from tkinter import ttk
+        from .naming import load_stacks_csv, build_stacks_csv_rows
+
+        for w in self._meta_inner.winfo_children():
+            w.destroy()
+        self._meta_entries.clear()
+
+        existing = load_stacks_csv(self.source)
+        rows = build_stacks_csv_rows(self.source, existing)
+
+        for row in rows:
+            sname = row.get("StackFolder", "")
+            title = row.get("Title", "")
+            tags = row.get("Tags", "")
+            rating = row.get("Rating", "")
+
+            r = tk.Frame(self._meta_inner, pady=1)
+            r.pack(fill="x")
+
+            parts = sname.split("-")
+            short_id = parts[2] if len(parts) >= 3 else sname
+            if len(parts) >= 4 and not parts[3].startswith("z"):
+                short_id = f"{parts[2]}-{parts[3]}"
+            tk.Label(r, text=short_id, font=("mono", 9), width=22, anchor="w").pack(
+                side="left", padx=2)
+
+            title_var = tk.StringVar(value=title)
+            ttk.Entry(r, textvariable=title_var, width=28).pack(side="left", padx=2)
+
+            tags_var = tk.StringVar(value=tags)
+            ttk.Entry(r, textvariable=tags_var, width=22).pack(side="left", padx=2)
+
+            rating_var = tk.StringVar(value=rating)
+            ttk.Spinbox(r, from_=0, to=5, textvariable=rating_var, width=5).pack(
+                side="left", padx=2)
+
+            self._meta_entries.append({
+                "sname": sname,
+                "title_var": title_var,
+                "tags_var": tags_var,
+                "rating_var": rating_var,
+            })
+
+        self._meta_status.set(f"Loaded {len(rows)} stacks.")
+
+    def _save_metadata(self) -> None:
+        from .naming import (build_stacks_csv_rows, load_stacks_csv, save_stacks_csv,
+                              write_sidecar)
+
+        existing = load_stacks_csv(self.source)
+        rows = build_stacks_csv_rows(self.source, existing)
+        row_by_name = {r["StackFolder"]: r for r in rows}
+
+        for entry in self._meta_entries:
+            sname = entry["sname"]
+            title = entry["title_var"].get().strip()
+            tags = entry["tags_var"].get().strip()
+            rating = entry["rating_var"].get().strip()
+
+            if sname in row_by_name:
+                row_by_name[sname]["Title"] = title
+                row_by_name[sname]["Tags"] = tags
+                row_by_name[sname]["Rating"] = rating
+
+            stack_dir = self.source / sname
+            if stack_dir.exists():
+                write_sidecar(stack_dir, title, tags=tags, rating=rating)
+
+        save_stacks_csv(self.source, list(row_by_name.values()))
+        self._meta_status.set("Saved ppsp_stacks.csv and sidecars.")
+
+    def _rename_stack_dirs(self) -> None:
+        from .naming import load_stacks_csv, rename_stack
+        rows = load_stacks_csv(self.source)
+        renamed = 0
+        for row in rows:
+            title = row.get("Title", "").strip()
+            if not title:
+                continue
+            sname = row.get("StackFolder", "")
+            stack_dir = self.source / sname
+            if stack_dir.exists():
+                result = rename_stack(stack_dir, title, self.source)
+                if result and result != stack_dir:
+                    renamed += 1
+        self._meta_status.set(f"Renamed {renamed} stack director{'y' if renamed == 1 else 'ies'}.")
+        self._load_stacks()
+        self._load_metadata()
+
+    # ------------------------------------------------------------------
+    # Tab 5 — Discover (step-by-step variant selection)
+    # ------------------------------------------------------------------
+
+    def _build_discover_tab(self) -> None:
+        import tkinter as tk
+        from tkinter import ttk
+
+        frame = self._discover_frame
 
         top = ttk.Frame(frame)
         top.pack(fill="x", padx=6, pady=4)
@@ -424,19 +947,20 @@ class App:
         self._stack_combo = ttk.Combobox(top, textvariable=self._review_stack_var,
                                           state="readonly", width=40)
         self._stack_combo.pack(side="left", padx=4)
-        self._stack_combo.bind("<<ComboboxSelected>>", lambda _: self._refresh_review())
+        self._stack_combo.bind("<<ComboboxSelected>>", lambda _: self._refresh_discover())
 
         step_frame = ttk.LabelFrame(top, text="Step")
         step_frame.pack(side="left", padx=8)
         for step in ("enfuse", "tmo", "grading"):
             ttk.Radiobutton(step_frame, text=step.capitalize(), variable=self._review_step,
-                            value=step, command=self._refresh_review_tiles).pack(side="left", padx=2)
+                            value=step,
+                            command=self._refresh_discover_tiles).pack(side="left", padx=2)
 
-        self._review_btn_next = ttk.Button(top, text="Next step ▶",
-                                            command=self._review_next_step)
-        self._review_btn_next.pack(side="left", padx=4)
+        self._discover_btn_next = ttk.Button(top, text="Next step ▶",
+                                              command=self._discover_next_step)
+        self._discover_btn_next.pack(side="left", padx=4)
         ttk.Button(top, text="Save to session",
-                   command=self._save_review_to_session).pack(side="left", padx=4)
+                   command=self._save_discover_to_session).pack(side="left", padx=4)
 
         # Tile area
         canvas = tk.Canvas(frame)
@@ -460,33 +984,40 @@ class App:
                    command=lambda: self._set_all_tiles(True)).pack(side="left", padx=2)
         ttk.Button(bot, text="Deselect all",
                    command=lambda: self._set_all_tiles(False)).pack(side="left", padx=2)
+        ttk.Button(bot, text="← Prev stack",
+                   command=lambda: self._navigate_discover_stack(-1)).pack(side="left", padx=2)
+        ttk.Button(bot, text="Next stack →",
+                   command=lambda: self._navigate_discover_stack(1)).pack(side="left", padx=2)
 
         self._review_info = tk.StringVar(value="")
         ttk.Label(bot, textvariable=self._review_info).pack(side="right")
 
+        _shortcuts_label(frame,
+            "← → ↑ ↓ move focus  ·  Space select/unselect  ·  D discard  ·  R restore  ·  "
+            "F / dbl-click fullscreen  ·  Tab next step  ·  (fullscreen: c compare)")
+
     def _on_tab_changed(self, _event=None) -> None:
         tab = self._active_tab()
-        if tab == "Review":
-            self._refresh_review_stack_list()
-        elif tab == "Export":
+        if tab == "Discover":
+            self._refresh_discover_stack_list()
+        elif tab == "Generate":
             if not self._log_tail_started:
                 self._log_tail_started = True
                 self._start_log_tail()
 
-    def _refresh_review_stack_list(self) -> None:
+    def _refresh_discover_stack_list(self) -> None:
         stacks = [d.name for d in find_stack_dirs(self.source)]
         self._stack_combo["values"] = stacks
         if stacks and not self._review_stack_var.get():
             self._review_stack_var.set(stacks[0])
-            self._refresh_review()
+            self._refresh_discover()
 
-    def _refresh_review(self) -> None:
+    def _refresh_discover(self) -> None:
         sname = self._review_stack_var.get()
         if not sname:
             return
 
         if sname not in self._review_sel:
-            # Carry forward from the most recently reviewed stack (not this one).
             prev = next(
                 (s for s in reversed(self._review_order) if s != sname and s in self._review_sel),
                 None,
@@ -500,9 +1031,9 @@ class App:
             self._review_order.append(sname)
 
         self._review_step.set("enfuse")
-        self._refresh_review_tiles()
+        self._refresh_discover_tiles()
 
-    def _refresh_review_tiles(self) -> None:
+    def _refresh_discover_tiles(self) -> None:
         import tkinter as tk
 
         sname = self._review_stack_var.get()
@@ -510,12 +1041,11 @@ class App:
             return
         step = self._review_step.get()
 
-        variants_dir = self.source / "variants"
-        z_tier = self._size_var.get()
+        z_tier = self._cull_size_var.get()
         stack_dir = self.source / sname
         z_dir = stack_dir / z_tier
+        variants_dir = self.source / "variants"
 
-        # filename base handles both -stack and named dirs
         stack_base = stack_dir_to_filename_base(sname)
 
         candidates: List[Path] = []
@@ -525,11 +1055,10 @@ class App:
                     if "collage" not in f.name and f not in candidates:
                         candidates.append(f)
 
-        from .variants import parse_variant_chain, TMO_VARIANTS
+        from .variants import TMO_VARIANTS
         from .models import parse_chain
 
         chain_info: Dict[str, Path] = {}
-        enfuse_to_chains: Dict[str, List[str]] = {}
         for fpath in sorted(candidates):
             spec = parse_chain(fpath.name, tmo_ids=list(TMO_VARIANTS.keys()))
             if spec is None:
@@ -543,17 +1072,11 @@ class App:
             chain = "-".join(parts)
             if chain not in chain_info:
                 chain_info[chain] = fpath
-            enfuse_to_chains.setdefault(spec.enfuse_id, [])
-            if chain not in enfuse_to_chains[spec.enfuse_id]:
-                enfuse_to_chains[spec.enfuse_id].append(chain)
 
         sel = self._review_sel.setdefault(
             sname, {"enfuse": set(), "tmo": set(), "grading": set()})
 
-        # Separate discarded from active
-        discarded_chains = {
-            c for c, s in self.session.chain_stats.items() if s.discarded
-        }
+        discarded_chains = {c for c, s in self.session.chain_stats.items() if s.discarded}
 
         if step == "enfuse":
             display: Dict[str, Path] = {}
@@ -562,7 +1085,7 @@ class App:
                 if eid not in display:
                     display[eid] = fpath
             tiles: List[Tuple[str, Path]] = [(eid, p) for eid, p in sorted(display.items())]
-            info = "Select enfuse base(s) to keep  (D=discard, R=reintroduce, F/dbl-click=fullscreen)"
+            info = "Select enfuse base(s) to keep  (D=discard  R=restore  F/dbl=fullscreen)"
 
         elif step == "tmo":
             selected_enfuse = sel["enfuse"] or set(c.split("-")[0] for c in chain_info)
@@ -603,16 +1126,22 @@ class App:
             tiles = [(k, p) for k, p in sorted(display.items())]
             info = "Select final variant chains to publish"
 
+        # Full rebuild of tile widgets
         for w in self._review_tiles_frame.winfo_children():
             w.destroy()
         self._tile_frames.clear()
         self._tile_data = list(tiles)
-
         self._review_info.set(info)
-        step_sel = sel.get(step, set())
 
+        step_sel = sel.get(step, set())
         row_frame = None
-        COLS = 4
+        COLS = _DISCOVER_COLS
+
+        # Preserve focused chain if it's still in the new tile set
+        tile_ids = {cid for cid, _ in tiles}
+        if self._focused_chain not in tile_ids:
+            self._focused_chain = tiles[0][0] if tiles else None
+            self._tile_idx = 0
 
         for idx, (chain_id, fpath) in enumerate(tiles):
             if idx % COLS == 0:
@@ -622,42 +1151,120 @@ class App:
             wins = self._component_wins(chain_id)
             selected = chain_id in step_sel
             is_discarded = chain_id in discarded_chains
+            focused = chain_id == self._focused_chain
 
-            if is_discarded:
-                bg = _TILE_BG_DISCARDED
-            elif selected:
-                bg = _TILE_BG_SELECTED
-            else:
-                bg = _TILE_BG_DEFAULT
-
+            bg = self._tile_bg(chain_id, step_sel, discarded_chains)
             img = _load_thumb(fpath)
             tile = _make_tile(
                 row_frame, chain_id, img, wins, bg,
-                on_click=self._handle_tile_click,
+                on_click=self._move_focus_to_tile,
                 on_double_click=self._open_fullscreen,
+                focused=focused,
             )
             tile.pack(side="left", padx=4, pady=2)
             self._tile_frames.append((chain_id, tile))
 
+            if idx == 0 and self._focused_chain == chain_id:
+                self._tile_idx = 0
+            elif chain_id == self._focused_chain:
+                self._tile_idx = idx
+
         if not tiles:
             tk.Label(self._review_tiles_frame,
-                     text="No variants found. Run Discover first.",
+                     text="No variants found. Run Cull → Generate variants first.",
                      font=("sans-serif", 11)).pack(pady=20)
 
-    def _handle_tile_click(self, chain_id: str) -> None:
-        """Toggle selection and update focused chain."""
-        self._focused_chain = chain_id
+    def _tile_bg(self, chain_id: str, step_sel: Set[str],
+                 discarded_chains: Set[str]) -> str:
+        selected = chain_id in step_sel
+        is_discarded = chain_id in discarded_chains
+        focused = chain_id == self._focused_chain
+        if is_discarded:
+            return _TILE_BG_DISCARDED
+        if focused and selected:
+            return _TILE_BG_FOCUSED_SELECTED
+        if selected:
+            return _TILE_BG_SELECTED
+        if focused:
+            return _TILE_BG_FOCUSED
+        return _TILE_BG_DEFAULT
+
+    def _update_tile_appearances(self) -> None:
+        """Update tile backgrounds in-place — no widget rebuild, no flicker."""
         sname = self._review_stack_var.get()
         step = self._review_step.get()
-        cur = self._review_sel.setdefault(sname, {"enfuse": set(), "tmo": set(), "grading": set()})
+        sel = self._review_sel.get(sname, {}).get(step, set())
+        discarded = {c for c, s in self.session.chain_stats.items() if s.discarded}
+
+        for i, (chain_id, frame) in enumerate(self._tile_frames):
+            focused = chain_id == self._focused_chain
+            bg = self._tile_bg(chain_id, sel, discarded)
+            bd = 3 if focused else 1
+            relief = "solid" if focused else "raised"
+            frame.configure(bg=bg, bd=bd, relief=relief)  # type: ignore[union-attr]
+            for child in frame.winfo_children():  # type: ignore[union-attr]
+                try:
+                    child.configure(bg=bg)
+                except Exception:
+                    pass
+
+    def _move_focus_to_tile(self, chain_id: str) -> None:
+        """Move keyboard focus to a tile without toggling its selection."""
+        old = self._focused_chain
+        self._focused_chain = chain_id
+        for i, (cid, _) in enumerate(self._tile_frames):
+            if cid == chain_id:
+                self._tile_idx = i
+                break
+        self._update_tile_appearances()
+
+    def _toggle_tile_select(self) -> None:
+        """Toggle selection of the currently focused tile (Space key)."""
+        if self._focused_chain is None:
+            return
+        sname = self._review_stack_var.get()
+        step = self._review_step.get()
+        cur = self._review_sel.setdefault(
+            sname, {"enfuse": set(), "tmo": set(), "grading": set()})
+        chain_id = self._focused_chain
         if chain_id in cur[step]:
             cur[step].discard(chain_id)
         else:
             cur[step].add(chain_id)
-        self._refresh_review_tiles()
+        self._compare_chain = chain_id
+        self._update_tile_appearances()
+
+    def _navigate_tile_grid(self, dx: int, dy: int) -> None:
+        """Move tile focus by (dx, dy) in the grid (dx=col delta, dy=row delta)."""
+        if not self._tile_frames:
+            return
+        COLS = _DISCOVER_COLS
+        total = len(self._tile_frames)
+        old = self._tile_idx
+        old_row = old // COLS
+        old_col = old % COLS
+
+        new_col = old_col + dx
+        new_row = old_row + dy
+
+        # Wrap column left/right to prev/next row
+        if new_col < 0:
+            new_row -= 1
+            new_col = COLS - 1
+        elif new_col >= COLS:
+            new_row += 1
+            new_col = 0
+
+        new_idx = new_row * COLS + new_col
+        new_idx = max(0, min(new_idx, total - 1))
+
+        self._tile_idx = new_idx
+        chain_id, _ = self._tile_frames[new_idx]
+        self._focused_chain = chain_id
+        self._update_tile_appearances()
 
     def _open_fullscreen(self, start_chain_id: str) -> None:
-        """Open a large-image Toplevel for the tile set, starting at start_chain_id."""
+        """Open large-image viewer starting at start_chain_id; 'c' compares with previous."""
         import tkinter as tk
         if not self._tile_data:
             return
@@ -666,8 +1273,8 @@ class App:
             (i for i, (cid, _) in enumerate(self._tile_data) if cid == start_chain_id), 0)
 
         top = tk.Toplevel(self.root)
-        top.title("Fullscreen — ppsp Review")
-        top.geometry("1200x860")
+        top.title("Fullscreen — ppsp Discover")
+        top.geometry("1280x900")
         top.grab_set()
 
         info_lbl = tk.Label(top, text="", font=("mono", 10))
@@ -677,32 +1284,58 @@ class App:
         img_lbl.pack(fill="both", expand=True)
 
         _cur = [idx]
-        _img_ref = [None]  # prevent GC
+        _prev = [idx]  # for compare mode
+        _img_ref = [None]
 
         def _show(i: int) -> None:
+            _prev[0] = _cur[0]
             _cur[0] = i % len(self._tile_data)
             cid, fpath = self._tile_data[_cur[0]]
             sname = self._review_stack_var.get()
             step = self._review_step.get()
             sel = self._review_sel.get(sname, {}).get(step, set())
             status = " [✓ SELECTED]" if cid in sel else ""
-            img = _load_thumb(fpath, (1100, 800))
+            img = _load_thumb(fpath, (1180, 820))
             _img_ref[0] = img
             img_lbl.configure(image=img)
             info_lbl.configure(
-                text=f"{_cur[0] + 1}/{len(self._tile_data)}: {cid}{status}"
-                     "    Space=toggle  ←/→=browse  Esc=close"
+                text=(f"{_cur[0] + 1}/{len(self._tile_data)}: {cid}{status}"
+                      "    Space=toggle  ←/→=browse  c=compare  Esc=close")
             )
+            # Update focused chain in main view
+            self._focused_chain = cid
 
         def _toggle(_e=None) -> None:
             cid, _ = self._tile_data[_cur[0]]
-            self._handle_tile_click(cid)
+            self._toggle_tile_select()
             _show(_cur[0])
+
+        def _compare(_e=None) -> None:
+            """Toggle between current and previous image."""
+            if _prev[0] != _cur[0]:
+                dest = _prev[0]
+                _prev[0] = _cur[0]
+                _cur[0] = dest
+                cid, fpath = self._tile_data[_cur[0]]
+                sname = self._review_stack_var.get()
+                step = self._review_step.get()
+                sel = self._review_sel.get(sname, {}).get(step, set())
+                status = " [✓ SELECTED]" if cid in sel else ""
+                img = _load_thumb(fpath, (1180, 820))
+                _img_ref[0] = img
+                img_lbl.configure(image=img)
+                info_lbl.configure(
+                    text=(f"{_cur[0] + 1}/{len(self._tile_data)}: {cid}{status}"
+                          "    Space=toggle  ←/→=browse  c=compare  Esc=close  [comparing]")
+                )
+                self._focused_chain = cid
 
         top.bind("<Escape>", lambda _e: top.destroy())
         top.bind("<Left>", lambda _e: _show(_cur[0] - 1))
         top.bind("<Right>", lambda _e: _show(_cur[0] + 1))
         top.bind("<space>", _toggle)
+        top.bind("c", _compare)
+        top.bind("C", _compare)
         top.focus_set()
         _show(idx)
 
@@ -713,7 +1346,7 @@ class App:
         from .session import save_session
         save_session(self.session, self.source)
         self._set_status(f"Discarded: {self._focused_chain}")
-        self._refresh_review_tiles()
+        self._update_tile_appearances()
 
     def _reactivate_focused(self) -> None:
         if self._focused_chain is None:
@@ -722,35 +1355,36 @@ class App:
         from .session import save_session
         save_session(self.session, self.source)
         self._set_status(f"Reintroduced: {self._focused_chain}")
-        self._refresh_review_tiles()
+        self._update_tile_appearances()
 
-    def _review_next_step(self) -> None:
+    def _discover_next_step(self) -> None:
         sname = self._review_stack_var.get()
         step = self._review_step.get()
         sel = self._review_sel.get(sname, {})
         if not sel.get(step):
-            self._review_info.set("⚠  Select at least one variant before advancing to the next step.")
+            self._review_info.set("⚠  Select at least one variant before advancing.")
             return
         steps = ["enfuse", "tmo", "grading"]
         idx = steps.index(step)
         if idx < len(steps) - 1:
             self._review_step.set(steps[idx + 1])
-            self._refresh_review_tiles()
+            self._refresh_discover_tiles()
 
     def _set_all_tiles(self, selected: bool) -> None:
         sname = self._review_stack_var.get()
         step = self._review_step.get()
         if not sname or not step:
             return
-        sel = self._review_sel.setdefault(sname, {"enfuse": set(), "tmo": set(), "grading": set()})
+        sel = self._review_sel.setdefault(
+            sname, {"enfuse": set(), "tmo": set(), "grading": set()})
         if selected:
             for cid, _ in self._tile_frames:
                 sel[step].add(cid)
         else:
             sel[step].clear()
-        self._refresh_review_tiles()
+        self._update_tile_appearances()
 
-    def _save_review_to_session(self) -> None:
+    def _save_discover_to_session(self) -> None:
         from tkinter import messagebox
         sname = self._review_stack_var.get()
         if not sname:
@@ -763,7 +1397,7 @@ class App:
             return
 
         from .interactive import _scan_z_dir
-        z_tier = self._size_var.get()
+        z_tier = self._cull_size_var.get()
         stack_dir = self.source / sname
         generated = _scan_z_dir(stack_dir, z_tier)
 
@@ -774,8 +1408,7 @@ class App:
         messagebox.showinfo("Saved",
                             f"Selection saved for {sname}.\n\n{', '.join(selected_chains)}")
 
-    def _navigate_review_stack(self, delta: int) -> None:
-        """Move the Review combobox by delta steps."""
+    def _navigate_discover_stack(self, delta: int) -> None:
         stacks = list(self._stack_combo["values"])
         if not stacks:
             return
@@ -786,34 +1419,32 @@ class App:
             idx = 0
         new_idx = (idx + delta) % len(stacks)
         self._review_stack_var.set(stacks[new_idx])
-        self._refresh_review()
+        self._refresh_discover()
 
     # ------------------------------------------------------------------
-    # Tab 3 — Export
+    # Tab 6 — Generate (export finals)
     # ------------------------------------------------------------------
 
-    def _build_export_tab(self) -> None:
+    def _build_generate_tab(self) -> None:
         import tkinter as tk
         from tkinter import ttk
 
-        frame = self._export_frame
+        frame = self._generate_frame
 
-        opts = ttk.LabelFrame(frame, text="Output options")
-        opts.pack(fill="x", padx=12, pady=8)
+        # Z-tier at top
+        ztier_frame = ttk.LabelFrame(frame, text="Output size")
+        ztier_frame.pack(fill="x", padx=12, pady=8)
+        for key, label in [("z100", "full / z100"), ("z25", "half / z25"),
+                            ("z6", "quarter / z6"), ("z2", "micro / z2")]:
+            ttk.Radiobutton(ztier_frame, text=label, variable=self._gen_size_var,
+                            value=key).pack(side="left", padx=8)
 
-        ttk.Label(opts, text="Resolution (long side px, blank = full):").grid(
-            row=0, column=0, sticky="w", padx=6, pady=4)
-        ttk.Entry(opts, textvariable=self._resolution_var, width=8).grid(
-            row=0, column=1, sticky="w")
-
-        ttk.Label(opts, text="JPEG quality:").grid(row=1, column=0, sticky="w", padx=6, pady=4)
-        ttk.Spinbox(opts, from_=50, to=100, textvariable=self._quality_var,
-                    width=5).grid(row=1, column=1, sticky="w")
-
+        # Variant source (session winners at top)
         src_frame = ttk.LabelFrame(frame, text="Variant source")
         src_frame.pack(fill="x", padx=12, pady=4)
-
-        self._export_src_var = tk.StringVar(value="variants/")
+        ttk.Radiobutton(src_frame,
+                        text="Session winners (active chains from Discover tab)",
+                        variable=self._export_src_var, value="session").pack(anchor="w", padx=6)
         ttk.Radiobutton(src_frame,
                         text="variants/ folder (surviving files after discovery review)",
                         variable=self._export_src_var, value="variants/").pack(anchor="w", padx=6)
@@ -823,9 +1454,18 @@ class App:
         ttk.Radiobutton(src_frame, text="ppsp_stacks.csv (per-stack GenerateSpecs)",
                         variable=self._export_src_var,
                         value="ppsp_stacks.csv").pack(anchor="w", padx=6)
-        ttk.Radiobutton(src_frame,
-                        text="Session winners (active chains from Review tab)",
-                        variable=self._export_src_var, value="session").pack(anchor="w", padx=6)
+
+        opts = ttk.LabelFrame(frame, text="Output options")
+        opts.pack(fill="x", padx=12, pady=4)
+
+        ttk.Label(opts, text="Resolution (long side px, blank = full):").grid(
+            row=0, column=0, sticky="w", padx=6, pady=4)
+        ttk.Entry(opts, textvariable=self._resolution_var, width=8).grid(
+            row=0, column=1, sticky="w")
+
+        ttk.Label(opts, text="JPEG quality:").grid(row=1, column=0, sticky="w", padx=6, pady=4)
+        ttk.Spinbox(opts, from_=50, to=100, textvariable=self._quality_var,
+                    width=5).grid(row=1, column=1, sticky="w")
 
         out_frame = ttk.LabelFrame(frame, text="Output")
         out_frame.pack(fill="x", padx=12, pady=4)
@@ -841,33 +1481,13 @@ class App:
         self._export_progress = ttk.Progressbar(frame, mode="indeterminate")
         self._export_progress.pack(fill="x", padx=12, pady=2)
 
-        # Log panel
-        log_hdr = ttk.Frame(frame)
-        log_hdr.pack(fill="x", padx=12, pady=(6, 0))
-        ttk.Label(log_hdr, text="Log  (ppsp.log)").pack(side="left")
-        self._log_toggle_btn = ttk.Button(log_hdr, text="▼ Collapse",
-                                           command=self._toggle_log_panel, width=12)
-        self._log_toggle_btn.pack(side="right")
-
-        self._log_frame = ttk.Frame(frame)
-        self._log_frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
-
-        self._log_text = tk.Text(self._log_frame, height=12, font=("mono", 8),
-                                  state="disabled", wrap="none")
-        log_vsb = ttk.Scrollbar(self._log_frame, orient="vertical",
-                                  command=self._log_text.yview)
-        log_hsb = ttk.Scrollbar(self._log_frame, orient="horizontal",
-                                  command=self._log_text.xview)
-        self._log_text.configure(yscrollcommand=log_vsb.set, xscrollcommand=log_hsb.set)
-        log_vsb.pack(side="right", fill="y")
-        log_hsb.pack(side="bottom", fill="x")
-        self._log_text.pack(fill="both", expand=True)
+        _shortcuts_label(frame, "Ctrl+E export")
 
     def _export(self) -> None:
         from tkinter import messagebox
 
         src = self._export_src_var.get()
-        z_tier = "z100"
+        z_tier = self._gen_size_var.get()
         quality = self._quality_var.get()
         resolution_str = self._resolution_var.get().strip()
         resolution = int(resolution_str) if resolution_str.isdigit() else None
@@ -876,7 +1496,7 @@ class App:
             active = self.session.active_chains()
             if not active:
                 messagebox.showwarning("No session data",
-                                       "No active chains in session. Run Review first.")
+                                       "No active chains in session. Run Discover first.")
                 return
             variants_arg = ",".join(active)
         else:
@@ -889,6 +1509,7 @@ class App:
         self._export_btn.state(["disabled"])
         self._export_progress.start(10)
         self._set_status("Exporting…")
+        self._uncollapse_log()
 
         def _run():
             from .commands import cmd_generate
@@ -901,6 +1522,86 @@ class App:
 
         threading.Thread(target=_run, daemon=True).start()
 
+    # ------------------------------------------------------------------
+    # Tab 7 — Cleanup
+    # ------------------------------------------------------------------
+
+    def _build_cleanup_tab(self) -> None:
+        import tkinter as tk
+        from tkinter import ttk
+
+        frame = self._cleanup_frame
+        tk.Label(frame,
+                 text="Remove z-tier discovery folders and variants/ (destructive).",
+                 font=("TkDefaultFont", 10), foreground="#a00").pack(pady=(16, 4))
+        tk.Label(frame,
+                 text="ppsp.log and ppsp_stacks.csv are kept. This cannot be undone.",
+                 foreground="#555").pack(pady=(0, 12))
+
+        self._cleanup_confirm_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(frame, text="I understand this is a destructive operation",
+                        variable=self._cleanup_confirm_var).pack()
+
+        btn_row = ttk.Frame(frame)
+        btn_row.pack(pady=8)
+        self._cleanup_btn = ttk.Button(btn_row, text="▶  Run Cleanup",
+                                       command=self._run_cleanup_cmd)
+        self._cleanup_btn.pack(side="left")
+        self._cleanup_progress = ttk.Progressbar(btn_row, mode="indeterminate", length=120)
+        self._cleanup_progress.pack(side="left", padx=8)
+
+        self._cleanup_status = tk.StringVar(value="")
+        ttk.Label(frame, textvariable=self._cleanup_status, foreground="#444").pack()
+
+    def _run_cleanup_cmd(self) -> None:
+        from tkinter import messagebox
+        if not self._cleanup_confirm_var.get():
+            messagebox.showwarning("Confirm required",
+                                   "Check the confirmation box first.")
+            return
+        self._cleanup_btn.state(["disabled"])
+        self._cleanup_progress.start(10)
+        self._cleanup_status.set("Running cleanup…")
+
+        def _run():
+            from .commands import cmd_cleanup
+            try:
+                cmd_cleanup(self.source)
+                self._queue.put(("cleanup_done", None))
+            except Exception as exc:
+                self._queue.put(("cleanup_error", str(exc)))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    # ------------------------------------------------------------------
+    # Log panel (always visible at bottom, collapsible)
+    # ------------------------------------------------------------------
+
+    def _build_log_panel(self) -> None:
+        import tkinter as tk
+        from tkinter import ttk
+
+        log_hdr = ttk.Frame(self.root)
+        log_hdr.pack(fill="x", padx=6, pady=(2, 0))
+        ttk.Label(log_hdr, text="Log  (ppsp.log)").pack(side="left")
+        self._log_toggle_btn = ttk.Button(log_hdr, text="▼ Collapse",
+                                           command=self._toggle_log_panel, width=12)
+        self._log_toggle_btn.pack(side="right")
+
+        self._log_frame = ttk.Frame(self.root)
+        self._log_frame.pack(fill="both", expand=False, padx=6, pady=(0, 2))
+
+        self._log_text = tk.Text(self._log_frame, height=10, font=("mono", 8),
+                                  state="disabled", wrap="none")
+        log_vsb = ttk.Scrollbar(self._log_frame, orient="vertical",
+                                  command=self._log_text.yview)
+        log_hsb = ttk.Scrollbar(self._log_frame, orient="horizontal",
+                                  command=self._log_text.xview)
+        self._log_text.configure(yscrollcommand=log_vsb.set, xscrollcommand=log_hsb.set)
+        log_vsb.pack(side="right", fill="y")
+        log_hsb.pack(side="bottom", fill="x")
+        self._log_text.pack(fill="both", expand=True)
+
     def _toggle_log_panel(self) -> None:
         if self._log_frame is None:
             return
@@ -910,12 +1611,18 @@ class App:
             if self._log_toggle_btn:
                 self._log_toggle_btn.configure(text="▶ Expand")
         else:
-            self._log_frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+            self._log_frame.pack(fill="both", expand=False, padx=6, pady=(0, 2))
             if self._log_toggle_btn:
                 self._log_toggle_btn.configure(text="▼ Collapse")
 
+    def _uncollapse_log(self) -> None:
+        if self._log_collapsed:
+            self._toggle_log_panel()
+        if not self._log_tail_started:
+            self._log_tail_started = True
+            self._start_log_tail()
+
     def _start_log_tail(self) -> None:
-        """Start a daemon thread that tails ppsp.log and puts lines on the queue."""
         log_path = self.source / "ppsp.log"
 
         def _tail():
@@ -938,12 +1645,10 @@ class App:
 
         threading.Thread(target=_tail, daemon=True).start()
 
-        # Populate with existing content
         if log_path.exists():
             try:
                 lines = log_path.read_text(encoding="utf-8", errors="replace")
                 self._append_log(lines)
-                self._log_file_offset = log_path.stat().st_size
             except OSError:
                 pass
 
@@ -958,157 +1663,6 @@ class App:
             self._log_text.see("end")
 
     # ------------------------------------------------------------------
-    # Pre-tab culling grid
-    # ------------------------------------------------------------------
-
-    def _show_culling_grid(self) -> Optional[object]:
-        """Show a modal culling grid if cull/ has previews. Returns the Toplevel or None."""
-        import tkinter as tk
-        from tkinter import ttk
-
-        cull_dir = self.source / "cull"
-        previews = sorted(cull_dir.glob("*.jpg")) if cull_dir.exists() else []
-        if not previews:
-            return None
-
-        top = tk.Toplevel(self.root)
-        top.title("Culling — keep or prune stacks")
-        top.geometry("1100x700")
-        top.grab_set()
-
-        ttk.Label(top, text="Click to toggle prune (dimmed = will be pruned). "
-                             "Double-click for fullscreen.",
-                  font=("sans-serif", 10)).pack(pady=4)
-
-        # State: stack_name → keep (True) / prune (False)
-        cull_states: Dict[str, bool] = {}
-        cull_imgs: Dict[str, object] = {}  # keep PhotoImage refs
-
-        canvas = tk.Canvas(top)
-        vsb = ttk.Scrollbar(top, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=vsb.set)
-        vsb.pack(side="right", fill="y")
-        canvas.pack(fill="both", expand=True, padx=6, pady=4)
-
-        inner = tk.Frame(canvas)
-        inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
-        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<Configure>", lambda e: canvas.itemconfig(inner_id, width=e.width))
-
-        tile_frames: Dict[str, object] = {}
-        COLS = 5
-        row_frame = None
-
-        def _refresh_tile(sname: str) -> None:
-            f = tile_frames.get(sname)
-            if f is None:
-                return
-            keep = cull_states.get(sname, True)
-            bg = "#f0f0f0" if keep else "#b0b0b0"
-            f.configure(bg=bg)  # type: ignore[union-attr]
-            for child in f.winfo_children():  # type: ignore[union-attr]
-                try:
-                    child.configure(bg=bg)
-                except Exception:
-                    pass
-
-        def _toggle(sname: str) -> None:
-            cull_states[sname] = not cull_states.get(sname, True)
-            _refresh_tile(sname)
-
-        def _open_cull_fullscreen(sname: str) -> None:
-            ordered = [p.name.split("_count")[0] for p in previews]
-            _idx = [ordered.index(sname) if sname in ordered else 0]
-            fs = tk.Toplevel(top)
-            fs.title("Fullscreen Cull")
-            fs.geometry("1200x860")
-            fs.grab_set()
-            info = tk.Label(fs, text="", font=("mono", 10))
-            info.pack(side="top", pady=4)
-            lbl = tk.Label(fs, bg="black")
-            lbl.pack(fill="both", expand=True)
-            _ref = [None]
-
-            def _fs_show(i: int) -> None:
-                _idx[0] = i % len(previews)
-                pv = previews[_idx[0]]
-                sn = pv.name.split("_count")[0]
-                keep = cull_states.get(sn, True)
-                img = _load_thumb(pv, (1100, 800))
-                _ref[0] = img
-                lbl.configure(image=img)
-                info.configure(
-                    text=f"{_idx[0] + 1}/{len(previews)}: {sn}  "
-                         f"{'KEEP' if keep else 'PRUNE'}"
-                         "    Space=toggle  ←/→=browse  Esc=close"
-                )
-
-            def _fs_toggle(_e=None) -> None:
-                sn = previews[_idx[0]].name.split("_count")[0]
-                _toggle(sn)
-                _fs_show(_idx[0])
-
-            fs.bind("<Escape>", lambda _e: fs.destroy())
-            fs.bind("<Left>", lambda _e: _fs_show(_idx[0] - 1))
-            fs.bind("<Right>", lambda _e: _fs_show(_idx[0] + 1))
-            fs.bind("<space>", _fs_toggle)
-            fs.focus_set()
-            _fs_show(_idx[0])
-
-        for pidx, pv in enumerate(previews):
-            sname = pv.name.split("_count")[0]
-            cull_states[sname] = True
-            if pidx % COLS == 0:
-                row_frame = tk.Frame(inner)
-                row_frame.pack(fill="x", pady=2)
-
-            f = tk.Frame(row_frame, bg="#f0f0f0", bd=1, relief="raised",
-                         width=200, height=160)
-            f.pack_propagate(False)
-            f.pack(side="left", padx=3, pady=2)
-            tile_frames[sname] = f
-
-            img = _load_thumb(pv, (190, 130))
-            cull_imgs[sname] = img
-            if img:
-                il = tk.Label(f, image=img, bg="#f0f0f0")
-                il.image = img
-                il.pack(pady=(3, 0))
-                il.bind("<Button-1>", lambda _e, s=sname: _toggle(s))
-                il.bind("<Double-Button-1>", lambda _e, s=sname: _open_cull_fullscreen(s))
-
-            parts = sname.split("-")
-            short = parts[2] if len(parts) >= 3 else sname
-            tl = tk.Label(f, text=short, bg="#f0f0f0", font=("mono", 9))
-            tl.pack(pady=(1, 3))
-            tl.bind("<Button-1>", lambda _e, s=sname: _toggle(s))
-            f.bind("<Button-1>", lambda _e, s=sname: _toggle(s))
-
-        # Confirm / Cancel
-        bot = ttk.Frame(top)
-        bot.pack(fill="x", padx=12, pady=8)
-        ttk.Button(bot, text="Cancel", command=top.destroy).pack(side="right", padx=4)
-
-        def _confirm() -> None:
-            prune_names = [s for s, keep in cull_states.items() if not keep]
-            if prune_names:
-                cull_d = self.source / "cull"
-                for sname in prune_names:
-                    for f in cull_d.glob(f"{sname}_count*.jpg"):
-                        try:
-                            f.unlink()
-                        except OSError:
-                            pass
-                from .commands import cmd_prune
-                cmd_prune(self.source)
-            top.destroy()
-
-        ttk.Button(bot, text="✓ Confirm culling", command=_confirm).pack(side="right", padx=4)
-        ttk.Label(bot, text="Dimmed stacks will be pruned.").pack(side="left")
-
-        return top
-
-    # ------------------------------------------------------------------
     # Keyboard shortcuts
     # ------------------------------------------------------------------
 
@@ -1118,6 +1672,8 @@ class App:
         r.bind("<Control-l>", lambda _e: self._toggle_log_panel())
         r.bind("<Left>", self._on_left_key)
         r.bind("<Right>", self._on_right_key)
+        r.bind("<Up>", self._on_up_key)
+        r.bind("<Down>", self._on_down_key)
         r.bind("<Return>", self._on_enter_key)
         r.bind("<Tab>", self._on_tab_key)
         r.bind("d", self._on_d_key)
@@ -1130,47 +1686,59 @@ class App:
 
     def _on_left_key(self, _event=None) -> str:
         tab = self._active_tab()
-        if tab == "Discover":
+        if tab == "Cull":
             self._navigate_stacks(-1)
-        elif tab == "Review":
-            self._navigate_review_stack(-1)
+        elif tab == "Discover":
+            self._navigate_tile_grid(-1, 0)
         return "break"
 
     def _on_right_key(self, _event=None) -> str:
         tab = self._active_tab()
-        if tab == "Discover":
+        if tab == "Cull":
             self._navigate_stacks(1)
-        elif tab == "Review":
-            self._navigate_review_stack(1)
+        elif tab == "Discover":
+            self._navigate_tile_grid(1, 0)
         return "break"
+
+    def _on_up_key(self, _event=None) -> Optional[str]:
+        if self._active_tab() == "Discover":
+            self._navigate_tile_grid(0, -1)
+            return "break"
+        return None
+
+    def _on_down_key(self, _event=None) -> Optional[str]:
+        if self._active_tab() == "Discover":
+            self._navigate_tile_grid(0, 1)
+            return "break"
+        return None
 
     def _on_enter_key(self, _event=None) -> None:
         tab = self._active_tab()
-        if tab == "Discover":
+        if tab == "Cull":
             self._toggle_focused_stack()
 
     def _on_tab_key(self, _event=None) -> Optional[str]:
-        if self._active_tab() == "Review":
-            self._review_next_step()
+        if self._active_tab() == "Discover":
+            self._discover_next_step()
             return "break"
         return None
 
     def _on_d_key(self, _event=None) -> None:
-        if self._active_tab() == "Review":
+        if self._active_tab() == "Discover":
             self._discard_focused()
 
     def _on_r_key(self, _event=None) -> None:
-        if self._active_tab() == "Review":
+        if self._active_tab() == "Discover":
             self._reactivate_focused()
 
     def _on_f_key(self, _event=None) -> None:
-        if self._active_tab() == "Review" and self._focused_chain:
+        if self._active_tab() == "Discover" and self._focused_chain:
             self._open_fullscreen(self._focused_chain)
 
     def _on_space_key(self, _event=None) -> Optional[str]:
         tab = self._active_tab()
-        if tab == "Review" and self._focused_chain:
-            self._handle_tile_click(self._focused_chain)
+        if tab == "Discover" and self._focused_chain:
+            self._toggle_tile_select()
             return "break"
         return None
 
@@ -1199,6 +1767,33 @@ class App:
                     self._export_progress.stop()
                     self._export_btn.state(["!disabled"])
                     self._set_status(f"Export error: {data}")
+                elif msg == "rename_done":
+                    self._rename_progress.stop()
+                    self._rename_btn.state(["!disabled"])
+                    self._rename_status.set("Rename complete.")
+                    self._load_stacks()
+                elif msg == "rename_error":
+                    self._rename_progress.stop()
+                    self._rename_btn.state(["!disabled"])
+                    self._rename_status.set(f"Error: {data}")
+                elif msg == "organize_done":
+                    self._organize_progress.stop()
+                    self._organize_btn.state(["!disabled"])
+                    self._organize_status.set("Organize complete.")
+                    self._load_stacks()
+                elif msg == "organize_error":
+                    self._organize_progress.stop()
+                    self._organize_btn.state(["!disabled"])
+                    self._organize_status.set(f"Error: {data}")
+                elif msg == "cleanup_done":
+                    self._cleanup_progress.stop()
+                    self._cleanup_btn.state(["!disabled"])
+                    self._cleanup_status.set("Cleanup complete.")
+                    self._cleanup_confirm_var.set(False)
+                elif msg == "cleanup_error":
+                    self._cleanup_progress.stop()
+                    self._cleanup_btn.state(["!disabled"])
+                    self._cleanup_status.set(f"Error: {data}")
                 elif msg == "log_line":
                     self._append_log(str(data))
         except queue.Empty:
@@ -1208,72 +1803,12 @@ class App:
     def _set_status(self, msg: str) -> None:
         self._progress_text.set(msg)
 
-    def _show_name_dialog(self) -> Optional[object]:
-        """Pre-tab modal for the optional stack naming step. Returns Toplevel or None."""
-        if not find_stack_dirs(self._source):
-            return None
-
-        top = tk.Toplevel(self.root)
-        top.title("Name Stacks (optional)")
-        top.geometry("500x190")
-        top.grab_set()
-
-        tk.Label(top, text="Name your stacks before discovery?",
-                 font=("TkDefaultFont", 11)).pack(pady=10)
-        tk.Label(top,
-                 text="ppsp_stacks.csv will be written and opened for editing.\n"
-                      "Fill in titles (and optionally tags/rating), save, then click Done.",
-                 justify="center", foreground="#555").pack()
-
-        btn_frame = tk.Frame(top)
-        btn_frame.pack(pady=14)
-
-        done_btn: tk.Button
-
-        def _open_csv() -> None:
-            from .naming import build_stacks_csv_rows, load_stacks_csv, save_stacks_csv
-            existing = load_stacks_csv(self._source)
-            save_stacks_csv(self._source, build_stacks_csv_rows(self._source, existing))
-            csv_p = self._source / "ppsp_stacks.csv"
-            try:
-                import subprocess as _sp
-                _sp.Popen(["xdg-open", str(csv_p)])
-            except OSError:
-                pass
-            done_btn.config(state="normal")
-
-        def _done() -> None:
-            from .commands import _name_from_csv
-            from .naming import build_stacks_csv_rows, load_stacks_csv, save_stacks_csv
-            existing = load_stacks_csv(self._source)
-            rows = build_stacks_csv_rows(self._source, existing)
-            csv_p = self._source / "ppsp_stacks.csv"
-            if csv_p.exists():
-                _name_from_csv(self._source, csv_p, rows, redo=False)
-                save_stacks_csv(self._source, rows)
-            top.destroy()
-
-        tk.Button(btn_frame, text="Open CSV", command=_open_csv).pack(side="left", padx=6)
-        done_btn = tk.Button(btn_frame, text="Done", command=_done, state="disabled")
-        done_btn.pack(side="left", padx=6)
-        tk.Button(btn_frame, text="Skip", command=top.destroy).pack(side="left", padx=6)
-
-        return top
-
     def run(self) -> None:
-        cull_top = self._show_culling_grid()
-        if cull_top is not None:
-            self.root.wait_window(cull_top)
-            self._load_stacks()
-        name_top = self._show_name_dialog()
-        if name_top is not None:
-            self.root.wait_window(name_top)
-            self._load_stacks()
         self.root.mainloop()
 
 
 def launch(source: Optional[Path] = None) -> None:
-    """Entry point for ppsp-gui."""
+    """Entry point for ppsp --gui."""
     import sys
     try:
         import tkinter  # noqa: F401

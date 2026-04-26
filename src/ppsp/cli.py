@@ -69,7 +69,7 @@ def _build_parser():
                         help="Per-stack interactive discovery with session-based variant narrowing "
                              "(affects -D and full workflow)")
     parser.add_argument("--gui", action="store_true",
-                        help="Launch the tkinter GUI (requires tkinter; Pillow optional for thumbnails)")
+                        help="Launch the tkinter GUI — Work in Progress (requires tkinter; Pillow optional for thumbnails)")
 
     # Options (affect command behaviour)
     opts = parser.add_argument_group("options")
