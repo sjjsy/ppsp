@@ -1,6 +1,8 @@
 """Per-stack interactive discovery CLI loop with session-based variant narrowing.
 
 Invoked via ``ppsp -D --interactive`` or from ``run_full_workflow`` with ``interactive=True``.
+Recommended viewer for rapid variant review: ``feh --auto-zoom --recursive``
+(pass via ``--viewer`` flag); default ``xdg-open`` opens a folder browser instead.
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ import subprocess
 from pathlib import Path
 from typing import List, Optional
 
+from .naming import find_stack_dirs, is_stack_dir
 from .session import SessionState, load_session, save_session
 from .variants import VARIANT_LEVELS, parse_variant_chain
 
@@ -43,9 +46,7 @@ def run_interactive_discovery(
             source / n for n in sorted(stacks_filter) if (source / n).is_dir()
         )
     else:
-        stack_dirs = sorted(
-            d for d in source.iterdir() if d.is_dir() and d.name.endswith("-stack")
-        )
+        stack_dirs = find_stack_dirs(source)
 
     if not stack_dirs:
         logging.warning("No stack directories found under %s", source)
@@ -248,9 +249,7 @@ def _rebuild_variants_dir(source: Path, z_tier: str, session: SessionState) -> N
 
     processed = {r.stack for r in session.rounds}
 
-    for stack_dir in sorted(source.iterdir()):
-        if not stack_dir.is_dir() or not stack_dir.name.endswith("-stack"):
-            continue
+    for stack_dir in find_stack_dirs(source):
         if stack_dir.name not in processed:
             continue
 

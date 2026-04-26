@@ -59,14 +59,25 @@ class SessionState:
         if chain in self.chain_stats:
             self.chain_stats[chain].discarded = False
 
-    def convergence_streak(self) -> int:
-        """Number of trailing consecutive rounds selecting the same chain set."""
+    def convergence_streak(self, strip_ct: bool = True) -> int:
+        """Number of trailing consecutive rounds selecting the same chain set.
+
+        strip_ct: strip any ct* suffix before comparing so CT variants don't
+                  prevent convergence when the base chain is stable.
+        """
+        import re as _re
         if len(self.rounds) < 2:
             return 0
-        last = set(self.rounds[-1].selected)
+
+        def _norm(chains):
+            if strip_ct:
+                return frozenset(_re.sub(r"-ct[a-z0-9]+$", "", c) for c in chains)
+            return frozenset(chains)
+
+        last = _norm(self.rounds[-1].selected)
         count = 1
         for r in reversed(self.rounds[:-1]):
-            if set(r.selected) == last:
+            if _norm(r.selected) == last:
                 count += 1
             else:
                 break

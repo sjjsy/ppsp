@@ -88,7 +88,8 @@ def _build_parser():
                       help="Override resolution tier: z2/micro, z6/quarter, z25/half, z100/full "
                            "(default for -D: z25; default for -g: z100)")
     opts.add_argument("--viewer", default="xdg-open", metavar="VIEWER",
-                      help="Image viewer app for interactive cull/variants review (default: xdg-open)")
+                      help="Image viewer for interactive cull/variants review (default: xdg-open; "
+                           "feh --auto-zoom --recursive recommended for rapid keyboard browse)")
 
     # Command flags
     cmds = parser.add_argument_group("commands")
