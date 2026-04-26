@@ -115,6 +115,63 @@ circular import that would arise if naming.py imported `_resolve_stack_specs`.
 
 ---
 
+## 2026-04-26 14:03 — GUI rewrite; session/interactive/CLI hardening
+
+Implemented all remaining wip.md open items in one session. The bulk of the work was a
+complete rewrite of `gui.py` to fix several structural issues and add features that were
+specced but not yet built. The three smaller files (`session.py`, `interactive.py`, `cli.py`)
+got focused, targeted fixes.
+
+### Design decisions
+
+**GUI badge aggregation fix.** The old code looked up wins by exact chain ID in
+`chain_stats`, which always returned zero for component-level IDs ("sel4", "m08n", etc.).
+Fixed: `_component_wins(kid)` sums wins for all chains that contain `kid` as a
+dash-separated part.
+
+**Carry-forward in Tab 2.** When the user switches to a different stack in the review tab,
+the selection carries forward from the last reviewed stack that had non-empty selections.
+This avoids starting from a blank slate on each new stack.
+
+**Fullscreen viewer.** Double-clicking a tile opens a Toplevel Fullscreen viewer navigable
+with ←/→ and Space to toggle selection. Uses `grab_set()` to block the main window and
+auto-refreshes the info label as selections change.
+
+**Culling grid pre-tab.** Before entering the main tab loop, `run()` shows a Toplevel
+culling grid if `cull/` exists. Click toggles keep/prune (visual dimming); Confirm calls
+`cmd_prune()` and blocks via `root.wait_window()` so the stacks list is already pruned
+before the user lands on Tab 1.
+
+**Live log tail in Tab 3.** A daemon thread reads `ppsp.log` in a loop and pushes new
+lines via the existing `_poll_queue()` queue. Auto-scroll is suppressed when the user has
+scrolled up (`yview()[1] >= 0.99` check). A toggle button collapses/expands the panel.
+
+**session.py strip_ct.** `convergence_streak()` gains a `strip_ct=True` default that
+strips any `-ct*` suffix before comparing chain sets across rounds, so CT colour-tone
+variants don't block convergence detection when the base chains are stable.
+
+**interactive.py named-stack compatibility.** Two `endswith("-stack")` patterns were
+replaced with `find_stack_dirs()` / `is_stack_dir()` from `naming.py`, so named stacks
+(post `ppsp -n` rename) are picked up by interactive discovery and variants rebuild.
+
+### Modified files
+- `src/ppsp/gui.py` — complete rewrite; ~750 lines replacing ~150
+- `src/ppsp/session.py` — `convergence_streak(strip_ct=True)`
+- `src/ppsp/interactive.py` — `find_stack_dirs()` replaces two `endswith` checks
+- `src/ppsp/cli.py` — `--viewer` help text updated to mention `feh --auto-zoom --recursive`
+
+### Stats
+
+| | |
+|---|---|
+| Duration | ~0.9h (13:07 – 14:03 EEST) |
+| Commits | 1 · d8fa34a |
+| Files | 4 files changed, +695 insertions(+), -172 deletions(-) |
+| claude-sonnet-4-6 | 6k in · 211k out · 387k cache↑ · 13.5M cache↓ · ~$8.68 |
+| **Total** | **~$8.68** |
+
+---
+
 ## 2026-04-26 (cont.) — Collaboration infrastructure: four-document system, session stats
 
 Continuation of the 07:56 session (same Claude Code JSONL file). The whole session was
