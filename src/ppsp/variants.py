@@ -90,6 +90,11 @@ TMO_VARIANTS: Dict[str, List[str]] = {
              "--tmoM08ConstrastEnh", "3.0",
              "--gamma", "1.2",
              "--postgamma", "1.1"],
+    "m08m": ["--tmo", "mantiuk08",                                               # Moody / restrained; low enhancement, slightly dark
+             "--tmoM08ColorSaturation", "1.1",
+             "--tmoM08ConstrastEnh", "1.5",
+             "--gamma", "1.0",
+             "--postgamma", "0.95"],
     # --- Mantiuk ‘06 ---
     "m06d": ["--tmo", "mantiuk06"],                                              # Luminance defaults
     "m06p": ["--tmo", "mantiuk06",                                               # Punch / pop; strong micro-contrast
@@ -98,17 +103,43 @@ TMO_VARIANTS: Dict[str, List[str]] = {
              "--tmoM06Detail", "1.0",
              "--gamma", "1.2",
              "--postgamma", "1.1"],
+    "m06b": ["--tmo", "mantiuk06",                                               # Balanced; gentler than m06p, good general alternative
+             "--tmoM06Contrast", "0.5",
+             "--tmoM06Saturation", "1.2",
+             "--tmoM06Detail", "0.8",
+             "--gamma", "1.1",
+             "--postgamma", "1.05"],
+    "m06s": ["--tmo", "mantiuk06",                                               # Subtle / soft; minimal operator signature, clean lift
+             "--tmoM06Contrast", "0.3",
+             "--tmoM06Saturation", "1.0",
+             "--tmoM06Detail", "0.6",
+             "--gamma", "1.15",
+             "--postgamma", "1.1"],
     # --- Drago ---
     "drad": ["--tmo", "drago"],                                                  # Luminance defaults
     "dras": ["--tmo", "drago",                                                   # Soft highlight roll-off; bright shadows
              "--tmoDrgBias", "0.85",
              "--postgamma", "1.1"],
+    "drab": ["--tmo", "drago",                                                   # Higher bias; maximum shadow detail recovery
+             "--tmoDrgBias", "0.95",
+             "--postgamma", "1.05"],
+    "dran": ["--tmo", "drago",                                                   # Neutral bias; lets highlights breathe, lower-key result
+             "--tmoDrgBias", "0.75",
+             "--postgamma", "1.0"],
     # --- Reinhard ‘02 ---
     "r02d": ["--tmo", "reinhard02"],                                             # Luminance defaults
     "r02p": ["--tmo", "reinhard02",                                              # Photographic / clean; zone-system key, brightened
              "--tmoR02Key", "0.18",
              "--tmoR02Phi", "1.0",
              "--postgamma", "1.1"],
+    "r02h": ["--tmo", "reinhard02",                                              # High-key / bright; elevated midtone exposure
+             "--tmoR02Key", "0.28",
+             "--tmoR02Phi", "1.0",
+             "--postgamma", "1.15"],
+    "r02m": ["--tmo", "reinhard02",                                              # Moody / dark; low key, naturally shadowy atmosphere
+             "--tmoR02Key", "0.10",
+             "--tmoR02Phi", "1.0",
+             "--postgamma", "1.0"],
     # --- Fattal ---
     "fatd": ["--tmo", "fattal"],                                                 # Luminance defaults
     "fatn": ["--tmo", "fattal",                                                  # Tamed / natural; desaturated, moderately lifted
@@ -119,6 +150,12 @@ TMO_VARIANTS: Dict[str, List[str]] = {
              "--tmoFatAlpha", "0.8",
              "--tmoFatBeta", "0.9",
              "--postgamma", "1.05"],
+    "fats": ["--tmo", "fattal",                                                  # Soft / low-gradient; reduced local contrast for plain walls
+             "--tmoFatColor", "0.6",
+             "--tmoFatAlpha", "0.5",
+             "--tmoFatBeta", "0.95",
+             "--gamma", "1.1",
+             "--postgamma", "1.1"],
     # --- Ferradans and Ferwerda (no tuned variants) ---
     "ferr": ["--tmo", "ferradans"],
     "ferw": ["--tmo", "ferwerda"],
@@ -130,6 +167,14 @@ TMO_VARIANTS: Dict[str, List[str]] = {
              "--tmoKimKautzC1", "0.8",
              "--tmoKimKautzC2", "1.2",
              "--postgamma", "1.1"],
+    "kiml": ["--tmo", "kimkautz",                                                # Low contrast / dark; restrained and atmospheric
+             "--tmoKimKautzC1", "0.5",
+             "--tmoKimKautzC2", "0.9",
+             "--postgamma", "1.0"],
+    "kimv": ["--tmo", "kimkautz",                                                # Vibrant / punchy; enhanced local and global contrast
+             "--tmoKimKautzC1", "1.0",
+             "--tmoKimKautzC2", "1.5",
+             "--postgamma", "1.15"],
 }
 
 GRADING_PRESETS: Dict[str, List[str]] = {
@@ -213,14 +258,20 @@ VARIANT_LEVELS: Dict[str, Tuple[List[str], List[str], List[str], List[str]]] = {
         [],
     ),
     "many": (
-        ["natu", "sel3", "sel4"],
-        ["m08n", "fatn"],
+        ["natu", "sel4"],
+        ["m08n", "r02p", "fatn"],
         ["neut", "dvi1"],
+        ["ctw5"],
+    ),
+    "tmod": (
+        ["sel4"],
+        list(k for k in TMO_VARIANTS.keys() if k.endswith('d')),
+        ["neut"],
         ["ctw5"],
     ),
     "lots": (
         ["natu", "sel3", "sel4", "sel6", "cont"],
-        ["m08n", "m08c", "m06p", "r02p", "dras", "fatc"],
+        ["m08n", "m08c", "m06p", "r02p", "dras", "fatn", "fatc", "kimn"],
         ["neut", "brig", "dvi1", "dvi2"],
         ["ctw5"],
     ),

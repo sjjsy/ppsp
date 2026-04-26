@@ -216,6 +216,7 @@ ppsp presets (see [README.md § Tone-mapping operators](README.md#tone-mapping-o
 - `m08d` — Luminance defaults; safe baseline.
 - `m08n` — Natural/balanced: `--tmoM08ColorSaturation 1.2 --tmoM08ConstrastEnh 2.0 --gamma 1.2 --saturation 1.2 --postgamma 1.1`. The combined gamma and post-gamma lift keeps the output bright and editorial without feeling pushed. **Default discovery choice for most interior shoots.**
 - `m08c` — Contrast/punch: `--tmoM08ColorSaturation 1.3 --tmoM08ConstrastEnh 3.0 --gamma 1.2 --postgamma 1.1`. The same brightness as m08n but with noticeably higher local contrast — use when you need to visually separate window highlights from the room without changing the overall exposure feel.
+- `m08m` — Moody/restrained: `--tmoM08ColorSaturation 1.1 --tmoM08ConstrastEnh 1.5 --gamma 1.0 --postgamma 0.95`. Deliberately low enhancement and no brightness lift — the result is darker and less saturated than m08n. Use when m08n reads as over-processed, or when the brief calls for a quiet, atmospheric look rather than an editorial one.
 
 #### Mantiuk '06 (`m06*`)
 
@@ -230,6 +231,8 @@ Older algorithm with a more explicit parameter set. Produces slightly punchier o
 ppsp presets:
 - `m06d` — Luminance defaults.
 - `m06p` — Punch/pop: `--tmoM06Contrast 0.7 --tmoM06Saturation 1.4 --tmoM06Detail 1.0 --gamma 1.2 --postgamma 1.1`. The operator-specific saturation of 1.4 is the primary colour driver; the gamma lifts ensure brightness is comparable with other tuned presets. Excellent on kitchen worktops, wooden floors, and tiled bathrooms.
+- `m06b` — Balanced: `--tmoM06Contrast 0.5 --tmoM06Saturation 1.2 --tmoM06Detail 0.8 --gamma 1.1 --postgamma 1.05`. A gentler version of m06p — enough punch to give surfaces depth without the saturation push becoming distracting. Good starting point when m06p feels too aggressive for a scene.
+- `m06s` — Subtle/soft: `--tmoM06Contrast 0.3 --tmoM06Saturation 1.0 --tmoM06Detail 0.6 --gamma 1.15 --postgamma 1.1`. Minimal operator signature with a neutral-saturation, slightly lifted output. The closest Mantiuk '06 gets to a clean global exposure adjustment; useful when texture enhancement would be inappropriate (white walls, minimalist rooms).
 
 #### Drago (`dra*`)
 

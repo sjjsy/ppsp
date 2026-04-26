@@ -57,7 +57,15 @@ class ChainSpec:
 
 # Pattern: YYYYMMDDHHMMSS-CCCxxx-NNNN-<chain>.<ext>
 # chain = z-tier + enfuse-id + optional-tmo-id + grading-id + optional-ct-id + optional q/r segments
-_KNOWN_TMOS = {"m08d", "m08n", "m08c", "m06d", "m06p", "drad", "dras", "r02d", "r02p", "fatd", "fatn", "fatc", "ferr", "ferw", "kimd", "kimn"}
+_KNOWN_TMOS = {
+    "m08d", "m08n", "m08c", "m08m",
+    "m06d", "m06p", "m06b", "m06s",
+    "drad", "dras", "drab", "dran",
+    "r02d", "r02p", "r02h", "r02m",
+    "fatd", "fatn", "fatc", "fats",
+    "ferr", "ferw",
+    "kimd", "kimn", "kiml", "kimv",
+}
 _KNOWN_CTS = {"ctw4", "ctw5", "ctd6", "ctc7", "ctc9"}
 
 

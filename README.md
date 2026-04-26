@@ -1,4 +1,4 @@
-# ppsp — Post PhotoShoot Processor (or Python Photo Stack Processor)
+# ppsp — Post Photoshoot Processor (or Python Photo Stack Producer if you prefer)
 
 A CLI tool for real-estate and architectural photographers who shoot 200+ images per session and publish 10–20 polished finals.
 `ppsp` is purpose-built around **stack processing**: every image is treated as part of an HDR exposure bracket or focus stack, and the tool is designed to handle dozens of stacks in a single automated run.
@@ -297,19 +297,29 @@ For each operator, a `d`-suffix "defaults" variant is listed first (no extra fla
 | `m08d` | Mantiuk '08 | Luminance defaults | — |
 | `m08n` | Mantiuk '08 | Natural / balanced; bright editorial look — best all-rounder for interiors | `--tmoM08ColorSaturation 1.2 --tmoM08ConstrastEnh 2.0 --gamma 1.2 --saturation 1.2 --postgamma 1.1` |
 | `m08c` | Mantiuk '08 | Higher contrast, same brightness as m08n; windows and mixed-light scenes | `--tmoM08ColorSaturation 1.3 --tmoM08ConstrastEnh 3.0 --gamma 1.2 --postgamma 1.1` |
+| `m08m` | Mantiuk '08 | Moody / restrained; low enhancement, slightly darker than m08n | `--tmoM08ColorSaturation 1.1 --tmoM08ConstrastEnh 1.5 --gamma 1.0 --postgamma 0.95` |
 | `m06d` | Mantiuk '06 | Luminance defaults | — |
 | `m06p` | Mantiuk '06 | Punch / pop; strong texture micro-contrast — wood, stone, tile | `--tmoM06Contrast 0.7 --tmoM06Saturation 1.4 --tmoM06Detail 1.0 --gamma 1.2 --postgamma 1.1` |
+| `m06b` | Mantiuk '06 | Balanced; gentler than m06p, good general-purpose alternative | `--tmoM06Contrast 0.5 --tmoM06Saturation 1.2 --tmoM06Detail 0.8 --gamma 1.1 --postgamma 1.05` |
+| `m06s` | Mantiuk '06 | Subtle / soft; minimal operator signature, closest to a clean lift | `--tmoM06Contrast 0.3 --tmoM06Saturation 1.0 --tmoM06Detail 0.6 --gamma 1.15 --postgamma 1.1` |
 | `drad` | Drago | Luminance defaults | — |
 | `dras` | Drago | Soft logarithmic highlight roll-off with shadow lift; contre-jour and blue-hour | `--tmoDrgBias 0.85 --postgamma 1.1` |
+| `drab` | Drago | Higher bias; maximum shadow detail recovery | `--tmoDrgBias 0.95 --postgamma 1.05` |
+| `dran` | Drago | Neutral bias; lets highlights breathe, lower-key result | `--tmoDrgBias 0.75 --postgamma 1.0` |
 | `r02d` | Reinhard '02 | Luminance defaults | — |
 | `r02p` | Reinhard '02 | Zone-system photographic tone curve; lowest artefact risk, brightened | `--tmoR02Key 0.18 --tmoR02Phi 1.0 --postgamma 1.1` |
+| `r02h` | Reinhard '02 | High-key / bright; elevated midtone exposure for light, airy results | `--tmoR02Key 0.28 --tmoR02Phi 1.0 --postgamma 1.15` |
+| `r02m` | Reinhard '02 | Moody / dark; low key, naturally shadowy atmosphere | `--tmoR02Key 0.10 --tmoR02Phi 1.0 --postgamma 1.0` |
 | `fatd` | Fattal | Luminance defaults | — |
 | `fatn` | Fattal | Tamed / natural; gradient pop with desaturated output and moderate brightness lift | `--tmoFatColor 0.8 --gamma 1.1 --postgamma 1.1` |
 | `fatc` | Fattal | Creative / dramatic; full local contrast on exteriors and high-contrast architecture | `--tmoFatAlpha 0.8 --tmoFatBeta 0.9 --postgamma 1.05` |
+| `fats` | Fattal | Soft / low-gradient; reduced local contrast for plain walls and clean interiors | `--tmoFatColor 0.6 --tmoFatAlpha 0.5 --tmoFatBeta 0.95 --gamma 1.1 --postgamma 1.1` |
 | `ferr` | Ferradans | Luminance defaults | — |
 | `ferw` | Ferwerda | Luminance defaults | — |
 | `kimd` | KimKautz | Luminance defaults | — |
 | `kimn` | KimKautz | Clean magazine look; no halos, no colour shift — luxury interiors and white walls | `--tmoKimKautzC1 0.8 --tmoKimKautzC2 1.2 --postgamma 1.1` |
+| `kiml` | KimKautz | Low contrast / dark; restrained and atmospheric | `--tmoKimKautzC1 0.5 --tmoKimKautzC2 0.9 --postgamma 1.0` |
+| `kimv` | KimKautz | Vibrant / punchy; enhanced local and global contrast | `--tmoKimKautzC1 1.0 --tmoKimKautzC2 1.5 --postgamma 1.15` |
 
 Note: The author compared the results with these tone-mapping presets with some sample indoor photos taken with the Sony a7R IV, and the following seemed to provide the best results by image content:
 
