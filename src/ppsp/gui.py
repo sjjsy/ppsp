@@ -951,8 +951,9 @@ class App:
 
         step_frame = ttk.LabelFrame(top, text="Step")
         step_frame.pack(side="left", padx=8)
-        for step in ("enfuse", "tmo", "grading"):
-            ttk.Radiobutton(step_frame, text=step.capitalize(), variable=self._review_step,
+        for step, label in [("enfuse", "1 Enfuse"), ("tmo", "2 TMO"),
+                             ("grading", "3 Grading"), ("ct", "4 CT")]:
+            ttk.Radiobutton(step_frame, text=label, variable=self._review_step,
                             value=step,
                             command=self._refresh_discover_tiles).pack(side="left", padx=2)
 
@@ -1025,7 +1026,7 @@ class App:
             if prev and any(self._review_sel[prev].values()):
                 self._review_sel[sname] = copy.deepcopy(self._review_sel[prev])
             else:
-                self._review_sel[sname] = {"enfuse": set(), "tmo": set(), "grading": set()}
+                self._review_sel[sname] = {"enfuse": set(), "tmo": set(), "grading": set(), "ct": set()}
 
         if not self._review_order or self._review_order[-1] != sname:
             self._review_order.append(sname)
@@ -1035,6 +1036,7 @@ class App:
 
     def _refresh_discover_tiles(self) -> None:
         import tkinter as tk
+        from .variants import ENFUSE_VARIANTS, TMO_VARIANTS, GRADING_PRESETS, CT_PRESETS, Z_TIERS
 
         sname = self._review_stack_var.get()
         if not sname:
@@ -1045,8 +1047,12 @@ class App:
         stack_dir = self.source / sname
         z_dir = stack_dir / z_tier
         variants_dir = self.source / "variants"
-
         stack_base = stack_dir_to_filename_base(sname)
+
+        known_enfuse = frozenset(ENFUSE_VARIANTS.keys()) | {"focu"}
+        known_tmos = frozenset(TMO_VARIANTS.keys())
+        known_gradings = frozenset(GRADING_PRESETS.keys())
+        known_cts = frozenset(CT_PRESETS.keys())
 
         candidates: List[Path] = []
         for d in (variants_dir, z_dir):
@@ -1055,76 +1061,106 @@ class App:
                     if "collage" not in f.name and f not in candidates:
                         candidates.append(f)
 
-        from .variants import TMO_VARIANTS
-        from .models import parse_chain
-
-        chain_info: Dict[str, Path] = {}
-        for fpath in sorted(candidates):
-            spec = parse_chain(fpath.name, tmo_ids=list(TMO_VARIANTS.keys()))
-            if spec is None:
-                continue
-            parts = [spec.enfuse_id]
-            if spec.tmo_id:
-                parts.append(spec.tmo_id)
-            parts.append(spec.grading_id)
-            if spec.ct_id:
-                parts.append(spec.ct_id)
-            chain = "-".join(parts)
-            if chain not in chain_info:
-                chain_info[chain] = fpath
-
         sel = self._review_sel.setdefault(
-            sname, {"enfuse": set(), "tmo": set(), "grading": set()})
-
+            sname, {"enfuse": set(), "tmo": set(), "grading": set(), "ct": set()})
         discarded_chains = {c for c, s in self.session.chain_stats.items() if s.discarded}
 
+        def _chain_tokens(fpath: Path) -> Optional[List[str]]:
+            stem = fpath.stem
+            prefix = stack_base + "-"
+            if not stem.startswith(prefix):
+                return None
+            parts = stem[len(prefix):].split("-")
+            for i, p in enumerate(parts):
+                if p in Z_TIERS:
+                    return parts[i + 1:]
+            return None
+
+        display: Dict[str, Path] = {}
+
         if step == "enfuse":
-            display: Dict[str, Path] = {}
-            for chain, fpath in chain_info.items():
-                eid = chain.split("-")[0]
-                if eid not in display:
-                    display[eid] = fpath
-            tiles: List[Tuple[str, Path]] = [(eid, p) for eid, p in sorted(display.items())]
-            info = "Select enfuse base(s) to keep  (D=discard  R=restore  F/dbl=fullscreen)"
+            # Show only enfuse-only stubs: 1 token, known enfuse id
+            for fpath in sorted(candidates):
+                toks = _chain_tokens(fpath)
+                if toks and len(toks) == 1 and toks[0] in known_enfuse:
+                    display.setdefault(toks[0], fpath)
+            info = "1/4 — Select enfuse base(s)  (educational: raw fusion output, no TMO, no grading)"
 
         elif step == "tmo":
-            selected_enfuse = sel["enfuse"] or set(c.split("-")[0] for c in chain_info)
-            display = {}
-            for chain, fpath in chain_info.items():
-                parts = chain.split("-")
-                eid = parts[0]
-                if eid not in selected_enfuse:
+            # Show only TMO stubs: 2 tokens, enfuse+TMO (no grading)
+            enfuse_sel = sel["enfuse"]
+            for fpath in sorted(candidates):
+                toks = _chain_tokens(fpath)
+                if not toks or len(toks) != 2:
                     continue
-                _T = TMO_VARIANTS
-                if len(parts) >= 3 and parts[1] in _T:
-                    key = f"{parts[0]}-{parts[1]}"
-                else:
-                    key = parts[0]
-                if key not in display:
-                    display[key] = fpath
-            tiles = [(k, p) for k, p in sorted(display.items())]
-            info = "Select enfuse-TMO combinations to keep"
+                if toks[0] not in known_enfuse or toks[1] not in known_tmos:
+                    continue
+                if enfuse_sel and toks[0] not in enfuse_sel:
+                    continue
+                key = f"{toks[0]}-{toks[1]}"
+                display.setdefault(key, fpath)
+            info = "2/4 — Select TMO combination(s)  (educational: enfuse+TMO output before grading)"
 
-        else:  # grading
-            selected_enfuse = sel["enfuse"] or set(c.split("-")[0] for c in chain_info)
-            selected_combos = sel["tmo"]
-            display = {}
-            for chain, fpath in chain_info.items():
-                parts = chain.split("-")
-                eid = parts[0]
-                if eid not in selected_enfuse:
+        elif step == "grading":
+            # Show full grading chains: {e}-{g} (no TMO) or {e}-{t}-{g} (with TMO), no CT
+            enfuse_sel = sel["enfuse"]
+            tmo_sel = sel["tmo"]
+            for fpath in sorted(candidates):
+                toks = _chain_tokens(fpath)
+                if not toks:
                     continue
-                _T = TMO_VARIANTS
-                if len(parts) >= 3 and parts[1] in _T:
-                    combo = f"{parts[0]}-{parts[1]}"
-                else:
-                    combo = parts[0]
-                if selected_combos and combo not in selected_combos:
+                if (len(toks) == 2 and toks[0] in known_enfuse
+                        and toks[1] in known_gradings):
+                    # No-TMO path: enfuse + grading
+                    if enfuse_sel and toks[0] not in enfuse_sel:
+                        continue
+                    key = f"{toks[0]}-{toks[1]}"
+                    display.setdefault(key, fpath)
+                elif (len(toks) == 3 and toks[0] in known_enfuse
+                      and toks[1] in known_tmos and toks[2] in known_gradings):
+                    # TMO path: enfuse + TMO + grading
+                    if enfuse_sel and toks[0] not in enfuse_sel:
+                        continue
+                    tmo_key = f"{toks[0]}-{toks[1]}"
+                    if tmo_sel and tmo_key not in tmo_sel:
+                        continue
+                    key = f"{toks[0]}-{toks[1]}-{toks[2]}"
+                    display.setdefault(key, fpath)
+            info = "3/4 — Select grading chain(s) to publish"
+
+        else:  # ct
+            # Show CT variants: last token is a CT id
+            enfuse_sel = sel["enfuse"]
+            tmo_sel = sel["tmo"]
+            grading_sel = sel["grading"]
+            for fpath in sorted(candidates):
+                toks = _chain_tokens(fpath)
+                if not toks or toks[-1] not in known_cts:
                     continue
-                if chain not in display:
-                    display[chain] = fpath
-            tiles = [(k, p) for k, p in sorted(display.items())]
-            info = "Select final variant chains to publish"
+                if (len(toks) == 3 and toks[0] in known_enfuse
+                        and toks[1] in known_gradings):
+                    # No-TMO+CT: enfuse+grading+ct
+                    if enfuse_sel and toks[0] not in enfuse_sel:
+                        continue
+                    grading_key = f"{toks[0]}-{toks[1]}"
+                    if grading_sel and grading_key not in grading_sel:
+                        continue
+                    display.setdefault("-".join(toks), fpath)
+                elif (len(toks) == 4 and toks[0] in known_enfuse
+                      and toks[1] in known_tmos and toks[2] in known_gradings):
+                    # TMO+CT: enfuse+TMO+grading+ct
+                    if enfuse_sel and toks[0] not in enfuse_sel:
+                        continue
+                    tmo_key = f"{toks[0]}-{toks[1]}"
+                    if tmo_sel and tmo_key not in tmo_sel:
+                        continue
+                    grading_key = f"{toks[0]}-{toks[1]}-{toks[2]}"
+                    if grading_sel and grading_key not in grading_sel:
+                        continue
+                    display.setdefault("-".join(toks), fpath)
+            info = "4/4 — Select color-temperature variant(s)"
+
+        tiles: List[Tuple[str, Path]] = list(sorted(display.items()))
 
         # Full rebuild of tile widgets
         for w in self._review_tiles_frame.winfo_children():
@@ -1137,7 +1173,6 @@ class App:
         row_frame = None
         COLS = _DISCOVER_COLS
 
-        # Preserve focused chain if it's still in the new tile set
         tile_ids = {cid for cid, _ in tiles}
         if self._focused_chain not in tile_ids:
             self._focused_chain = tiles[0][0] if tiles else None
@@ -1149,10 +1184,7 @@ class App:
                 row_frame.pack(fill="x", pady=2)
 
             wins = self._component_wins(chain_id)
-            selected = chain_id in step_sel
-            is_discarded = chain_id in discarded_chains
             focused = chain_id == self._focused_chain
-
             bg = self._tile_bg(chain_id, step_sel, discarded_chains)
             img = _load_thumb(fpath)
             tile = _make_tile(
@@ -1163,15 +1195,12 @@ class App:
             )
             tile.pack(side="left", padx=4, pady=2)
             self._tile_frames.append((chain_id, tile))
-
-            if idx == 0 and self._focused_chain == chain_id:
-                self._tile_idx = 0
-            elif chain_id == self._focused_chain:
+            if chain_id == self._focused_chain:
                 self._tile_idx = idx
 
         if not tiles:
             tk.Label(self._review_tiles_frame,
-                     text="No variants found. Run Cull → Generate variants first.",
+                     text="No variants found for this step. Run Cull → Generate variants first.",
                      font=("sans-serif", 11)).pack(pady=20)
 
     def _tile_bg(self, chain_id: str, step_sel: Set[str],
@@ -1364,7 +1393,7 @@ class App:
         if not sel.get(step):
             self._review_info.set("⚠  Select at least one variant before advancing.")
             return
-        steps = ["enfuse", "tmo", "grading"]
+        steps = ["enfuse", "tmo", "grading", "ct"]
         idx = steps.index(step)
         if idx < len(steps) - 1:
             self._review_step.set(steps[idx + 1])
@@ -1376,7 +1405,7 @@ class App:
         if not sname or not step:
             return
         sel = self._review_sel.setdefault(
-            sname, {"enfuse": set(), "tmo": set(), "grading": set()})
+            sname, {"enfuse": set(), "tmo": set(), "grading": set(), "ct": set()})
         if selected:
             for cid, _ in self._tile_frames:
                 sel[step].add(cid)
@@ -1390,10 +1419,13 @@ class App:
         if not sname:
             return
         sel = self._review_sel.get(sname, {})
-        selected_chains = list(sel.get("grading", set()))
+        # Prefer CT selections if any; otherwise use grading chains
+        ct_chains = list(sel.get("ct", set()))
+        grading_chains = list(sel.get("grading", set()))
+        selected_chains = ct_chains if ct_chains else grading_chains
         if not selected_chains:
             messagebox.showinfo("Nothing selected",
-                                "Select variants in the Grading step first.")
+                                "Select variants in the Grading (or CT) step first.")
             return
 
         from .interactive import _scan_z_dir

@@ -279,6 +279,27 @@ ppsp -D -V sel4-fatc-dvi1,sel4-fatc-neut,sel4-m06p-dvi1                # exact c
 
 Use `-V` to specify which variants to run and `-z` to override the resolution tier — see [§ --variants (-V)](#--variants--v).
 
+#### Discovery philosophy — chain stubs
+
+The discovery phase is intentionally **educational**: instead of showing only fully-processed final images, `-D` generates _chain stub_ variants at each processing level so you can see exactly what each step contributes.
+
+For every enfuse × TMO combination the pipeline produces three stub levels (plus the CT layer on top):
+
+| Stub level | Filename pattern | What you see |
+|---|---|---|
+| Enfuse-only | `{base}-{z}-{e}.jpg` | Raw exposure-fusion output — no tone mapping, no colour grading |
+| Enfuse + TMO | `{base}-{z}-{e}-{t}.jpg` | After tone mapping — before any ImageMagick grading |
+| Enfuse + TMO + grading | `{base}-{z}-{e}-{t}-{g}.jpg` | Final publishable variant (full chain) |
+| Full chain with CT | `{base}-{z}-{e}-{t}-{g}-{ct}.jpg` | White-point shift applied on top of the grading |
+
+The GUI's **Discover** tab steps through these levels one at a time, so each step shows a like-for-like comparison:
+- **Step 1 (Enfuse)**: compare `sel3.jpg` vs `sel4.jpg` vs `sel6.jpg` — which fusion setting captures the exposure range best?
+- **Step 2 (TMO)**: compare `sel4-fatn.jpg` vs `sel4-m08n.jpg` — which tone-mapping operator suits this scene?
+- **Step 3 (Grading)**: compare `sel4-fatn-neut.jpg` vs `sel4-fatn-dvi1.jpg` — which colour grade to publish?
+- **Step 4 (CT)**: optionally add a white-point shift to the chosen grading chain.
+
+You can also mix processing levels freely — for example `sel6.jpg` (enfuse-only), `sel3-fatd.jpg` (enfuse+TMO), or `sel5-kimd-dvi2-ctw4.jpg` (full chain with CT) are all valid outputs that `-D` and `-g` can produce or export.
+
 #### Resolution tiers
 
 The z-tier label is encoded in every output filename. For `-g`, the tier is determined by each filename's embedded z-tier (directory/CSV/TXT inputs) or by `-z` (chain specs / presets; default: `z100`).

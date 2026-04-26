@@ -504,6 +504,16 @@ def _get_raw_converter_lazy() -> Optional[str]:
     return get_raw_converter()
 
 
+def _tif_to_jpg(src_tif: Path, dst_jpg: Path, quality: int, redo: bool = False) -> bool:
+    """Convert a TIFF to a sRGB JPEG without grading — used for enfuse-only chain stubs."""
+    if dst_jpg.exists() and not redo:
+        return True
+    cmd = ["convert", str(src_tif), "-colorspace", "sRGB",
+           "-quality", str(quality), str(dst_jpg)]
+    run_command(cmd, f"tif→jpg {dst_jpg.name}")
+    return dst_jpg.exists()
+
+
 def _run_focus_variants(
     aligned: List[Path],
     output_dir: Path,
@@ -522,6 +532,16 @@ def _run_focus_variants(
     ok = run_enfuse(aligned, enfuse_tif, "focu", redo=redo)
     if not ok:
         return
+
+    # Chain stub: enfuse-only JPG (no grading) for educational comparison
+    stub_name = f"{base}-{z_tier}-focu.jpg"
+    stub_jpg = output_dir / stub_name
+    stub_new = not stub_jpg.exists() or redo
+    if _tif_to_jpg(enfuse_tif, stub_jpg, quality, redo):
+        if stub_new:
+            _copy_exif(mid_photo.path, stub_jpg)
+            annotate_image(stub_jpg)
+        generated.append(stub_name)
 
     ct_options: List[Optional[str]] = [None] + list(ct_ids)
     for grading_id in grading_ids:
@@ -562,7 +582,17 @@ def _run_hdr_variants(
         if not ok:
             continue
 
-        # Enfuse-only grading (no TMO)
+        # Chain stub 1: enfuse-only JPG (no TMO, no grading) — raw fusion output for comparison
+        stub_name = f"{base}-{z_tier}-{enfuse_id}.jpg"
+        stub_jpg = output_dir / stub_name
+        stub_new = not stub_jpg.exists() or redo
+        if _tif_to_jpg(enfuse_tif, stub_jpg, quality, redo):
+            if stub_new:
+                _copy_exif(mid_photo.path, stub_jpg)
+                annotate_image(stub_jpg)
+            generated.append(stub_name)
+
+        # Enfuse + grading, no TMO (no-TMO path)
         for grading_id in grading_ids:
             for ct_id in ct_options:
                 suffix = f"-{ct_id}" if ct_id else ""
@@ -578,10 +608,18 @@ def _run_hdr_variants(
 
         # TMO variants
         for tmo_id in tmo_ids:
-            tmo_jpg = output_dir / f"{base}-{z_tier}-{enfuse_id}-{tmo_id}.jpg"
+            tmo_stub_name = f"{base}-{z_tier}-{enfuse_id}-{tmo_id}.jpg"
+            tmo_jpg = output_dir / tmo_stub_name
+            tmo_stub_new = not tmo_jpg.exists() or redo
             ok3 = run_tmo(enfuse_tif, tmo_jpg, tmo_id, quality, redo=redo)
             if not ok3:
                 continue
+
+            # Chain stub 2: enfuse + TMO (no grading) — raw TMO output for comparison
+            if tmo_stub_new:
+                _copy_exif(mid_photo.path, tmo_jpg)
+                annotate_image(tmo_jpg)
+            generated.append(tmo_stub_name)
 
             for grading_id in grading_ids:
                 for ct_id in ct_options:
