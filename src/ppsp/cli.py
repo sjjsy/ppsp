@@ -1,4 +1,4 @@
-"""Argparse entry point — see DESIGN.md § CLI-to-function mapping and README.md § Command reference."""
+"""Argparse entry point — see design.md § CLI-to-function mapping and README.md § Command reference."""
 
 from __future__ import annotations
 
@@ -112,7 +112,7 @@ def _build_parser():
 
 
 def main(argv=None) -> None:
-    """CLI entry point dispatching to cmd_* functions — see DESIGN.md § CLI-to-function mapping."""
+    """CLI entry point dispatching to cmd_* functions — see design.md § CLI-to-function mapping."""
     parser = _build_parser()
     args = parser.parse_args(argv)
 

@@ -1,4 +1,4 @@
-"""Data models for ppsp — see DESIGN.md § Data models."""
+"""Data models for ppsp — see design.md § Data models."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import List, Optional
 
 
 class StackType(Enum):
-    """HDR or focus-stack classification — see DESIGN.md § Stack."""
+    """HDR or focus-stack classification — see design.md § Stack."""
 
     HDR = "hdr"
     FOCUS = "focus"
@@ -19,7 +19,7 @@ class StackType(Enum):
 
 @dataclass
 class Photo:
-    """Single image file after renaming — see DESIGN.md § Photo."""
+    """Single image file after renaming — see design.md § Photo."""
 
     path: Path
     filename: str
@@ -36,7 +36,7 @@ class Photo:
 
 @dataclass
 class Stack:
-    """Group of Photo objects belonging to the same scene — see DESIGN.md § Stack."""
+    """Group of Photo objects belonging to the same scene — see design.md § Stack."""
 
     name: str
     path: Path
@@ -46,7 +46,7 @@ class Stack:
 
 @dataclass
 class ChainSpec:
-    """Parsed variant chain from a filename — see DESIGN.md § ChainSpec."""
+    """Parsed variant chain from a filename — see design.md § ChainSpec."""
 
     z_tier: str
     enfuse_id: str

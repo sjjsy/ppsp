@@ -1,4 +1,4 @@
-"""Integration tests requiring test_data/ — see DESIGN.md § Testing strategy."""
+"""Integration tests requiring test_data/ — see design.md § Testing strategy."""
 
 from __future__ import annotations
 

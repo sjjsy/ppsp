@@ -5,8 +5,8 @@ A CLI tool for real-estate and architectural photographers who shoot 200+ images
 It automates the tedious mechanical work — renaming, organizing, stacking/aligning, fusing, tone-mapping, grading, resizing — while keeping you as the creative director.
 
 This README explains how ppsp can be used, but complementary documents are available:
-* **[GUIDE.md](GUIDE.md)** provides a deep-dive into the underlying theory and tools behind ppsp and its built-in presets.
-* **[DESIGN.md](DESIGN.md)** provides a technical overview of the tool from a developer's prespective.
+* **[guide.md](guide.md)** provides a deep-dive into the underlying theory and tools behind ppsp and its built-in presets.
+* **[design.md](design.md)** provides a technical overview of the tool from a developer's perspective.
 
 ## Motivation
 
@@ -582,15 +582,15 @@ pytest tests/test_rename.py::test_compute_refined_name
 ruff check src/
 ```
 
-**Test data:** place a small set of Sony ARW + JPG pairs in `test_data/`. Tests requiring real image data are automatically skipped if `test_data/` is absent or empty. The directory is gitignored and not distributed with the package. See [DESIGN.md](DESIGN.md) for the full testing strategy and code architecture.
+**Test data:** place a small set of Sony ARW + JPG pairs in `test_data/`. Tests requiring real image data are automatically skipped if `test_data/` is absent or empty. The directory is gitignored and not distributed with the package. See [design.md](design.md) for the full testing strategy and code architecture.
 
-**Development journal:** [journal.md](journal.md) is a session-by-session narrative log of collaboration and decisions — the human complement to `git log`. Each entry summarises what a working session covered and which commits it produced. Design decisions with lasting architectural significance go in [DESIGN.md](DESIGN.md) instead.
+**Development journal:** [journal.md](journal.md) is a session-by-session narrative log of collaboration and decisions — the human complement to `git log`. Each entry summarises what a working session covered and which commits it produced. Design decisions with lasting architectural significance go in [design.md](design.md) instead.
 
-**Active work:** [wip.md](wip.md) holds specs, wireframes, and annotation notes while work is in flight. It is committed as a snapshot when each piece of work ships, then flushed and refilled for the next topic. See DESIGN.md § Development workflow for the full protocol.
+**Active work:** [wip.md](wip.md) holds specs, wireframes, and annotation notes while work is in flight. It is committed as a snapshot when each piece of work ships, then flushed and refilled for the next topic. See design.md § Development workflow for the full protocol.
 
 ## Further reading
 
-For a deep-dive into the underlying tools and the reasoning behind ppsp's built-in presets, see **[GUIDE.md](GUIDE.md)**. It covers:
+For a deep-dive into the underlying tools and the reasoning behind ppsp's built-in presets, see **[guide.md](guide.md)**. It covers:
 
 - RAW conversion with `dcraw` — parameters, colour science, resolution tiers
 - Image alignment with `align_image_stack` — feature detection, HDR vs focus-stack modes

@@ -5,7 +5,7 @@ flight. Not stable documentation.
 
 **Lifecycle:** write here while working → annotate with TODO/FIXME → commit
 annotated state → revise → when shipped, commit final state then flush content
-here and summarise into journal.md / DESIGN.md.
+here and summarise into journal.md / design.md.
 
 ---
 

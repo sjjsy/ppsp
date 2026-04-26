@@ -1,4 +1,4 @@
-"""Unit tests for stacking.py — see DESIGN.md § Testing strategy."""
+"""Unit tests for stacking.py — see design.md § Testing strategy."""
 
 from __future__ import annotations
 

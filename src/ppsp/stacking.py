@@ -12,7 +12,7 @@ from .rename import parse_timestamp
 
 
 def photos_from_csv_rows(rows: List[Dict], source_dir: Path) -> List[Photo]:
-    """Convert CSV dicts from ppsp_photos.csv to sorted Photo objects — see DESIGN.md § Photo."""
+    """Convert CSV dicts from ppsp_photos.csv to sorted Photo objects — see design.md § Photo."""
     photos: List[Photo] = []
     for row in rows:
         filename = row.get("FileName", "").strip()

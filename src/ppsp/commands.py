@@ -1,4 +1,4 @@
-"""One cmd_* function per CLI step — see DESIGN.md § CLI-to-function mapping."""
+"""One cmd_* function per CLI step — see design.md § CLI-to-function mapping."""
 
 from __future__ import annotations
 
@@ -1101,7 +1101,7 @@ def run_full_workflow(
     viewer: str = "xdg-open",
     interactive: bool = False,
 ) -> None:
-    """Run all steps in sequence, prompting between each unless --batch — see DESIGN.md § Workflow."""
+    """Run all steps in sequence, prompting between each unless --batch — see design.md § Workflow."""
 
     def _prompt(msg: str) -> bool:
         if batch:

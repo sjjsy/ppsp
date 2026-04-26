@@ -1,4 +1,4 @@
-"""Unit tests for variants.py — see DESIGN.md § Testing strategy."""
+"""Unit tests for variants.py — see design.md § Testing strategy."""
 
 from __future__ import annotations
 

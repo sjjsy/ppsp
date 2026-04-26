@@ -112,7 +112,7 @@ def align_stack(
     is_hdr: bool = True,
     redo: bool = False,
 ) -> List[Path]:
-    """Run align_image_stack and return sorted aligned_*.tif list — see DESIGN.md § align_image_stack."""
+    """Run align_image_stack and return sorted aligned_*.tif list — see design.md § align_image_stack."""
     if len(tiff_files) < 2:
         return list(tiff_files)
 
@@ -231,7 +231,7 @@ def annotate_image(jpg: Path) -> None:
 
 
 def _copy_exif(source: Path, dest: Path) -> None:
-    """Copy all EXIF tags from source to dest with exiftool — see DESIGN.md § EXIF preservation."""
+    """Copy all EXIF tags from source to dest with exiftool — see design.md § EXIF preservation."""
     run_command(
         ["exiftool", "-TagsFromFile", str(source), "-all:all", "-overwrite_original", str(dest)],
         "copy EXIF",

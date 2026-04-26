@@ -9,7 +9,7 @@ Entries are in reverse-chronological order. Timestamps are local time (EEST, UTC
 ## How to use this file
 
 **Reading:** each entry has a short summary, decisions worth recording, and a commits table.
-Design decisions with lasting architectural significance go in DESIGN.md; ephemeral discussion
+Design decisions with lasting architectural significance go in design.md; ephemeral discussion
 is omitted here.
 
 **Writing an entry:** at the end of a session, ask Claude to write the entry and commit it.
@@ -28,11 +28,11 @@ responds to) while still preserving the exchange in git history.
 **Active work lives in wip.md.** Specs, wireframes, brainstorming, and review annotations go
 there while work is in flight. When a piece of work is done, wip.md is committed as-is
 (capturing the annotated state for the record), then flushed: the relevant decisions are
-summarised into journal.md and DESIGN.md, and wip.md is emptied for the next topic.
+summarised into journal.md and design.md, and wip.md is emptied for the next topic.
 
 **Relationship to other documents:**
 - `git log` — what changed in code and why, in technical terms
-- `DESIGN.md` — architecture decisions with lasting structural significance
+- `design.md` — architecture decisions with lasting structural significance
 - `journal.md` — session context, conversation-driven decisions, human narrative
 - `wip.md` — active specs and annotations; flushed to the above when work ships
 

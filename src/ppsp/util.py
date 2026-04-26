@@ -1,4 +1,4 @@
-"""Shared utilities: logging, subprocess wrapper, raw-converter detection — see DESIGN.md."""
+"""Shared utilities: logging, subprocess wrapper, raw-converter detection — see design.md."""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ class _ColoredFormatter(logging.Formatter):
 
 
 def setup_logging(verbose: bool = False) -> None:
-    """Configure dual FileHandler + StreamHandler logging — see DESIGN.md § Logging."""
+    """Configure dual FileHandler + StreamHandler logging — see design.md § Logging."""
     level = logging.DEBUG if verbose else logging.INFO
     fmt = "%(asctime)s | %(levelname)-8s | %(message)s"
     datefmt = "%Y-%m-%d %H:%M:%S"
@@ -86,7 +86,7 @@ def run_command(
     check: bool = True,
     shell: bool = False,
 ) -> Optional[subprocess.CompletedProcess]:
-    """Run a subprocess, log elapsed time if >4 s, log stdout at DEBUG — see DESIGN.md."""
+    """Run a subprocess, log elapsed time if >4 s, log stdout at DEBUG — see design.md."""
     if shell:
         display = cmd if isinstance(cmd, str) else " ".join(str(x) for x in cmd)
     else:
@@ -112,7 +112,7 @@ def run_command(
 
 
 def get_raw_converter() -> Optional[str]:
-    """Return 'dcraw', 'darktable-cli', or None — see DESIGN.md § RAW conversion."""
+    """Return 'dcraw', 'darktable-cli', or None — see design.md § RAW conversion."""
     if shutil.which("dcraw"):
         return "dcraw"
     if shutil.which("darktable-cli"):

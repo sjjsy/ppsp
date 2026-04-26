@@ -1,4 +1,4 @@
-"""Unit tests for rename.py — see DESIGN.md § Testing strategy."""
+"""Unit tests for rename.py — see design.md § Testing strategy."""
 
 from __future__ import annotations
 

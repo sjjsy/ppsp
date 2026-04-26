@@ -1,4 +1,4 @@
-"""Unit tests for parse_chain / compose_chain round-trips — see DESIGN.md § ChainSpec."""
+"""Unit tests for parse_chain / compose_chain round-trips — see design.md § ChainSpec."""
 
 from __future__ import annotations
 

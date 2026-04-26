@@ -1,4 +1,4 @@
-# DESIGN.md — ppsp Developer and Architecture Reference
+# design.md — ppsp Developer and Architecture Reference
 
 This document is for developers and maintainers of `ppsp`. It covers code organization, implementation decisions, data models, and testing strategy. For user-facing documentation — including the full variant parameter tables, naming convention, stack detection algorithm, CSV format, and collage layout — see [README.md](README.md). Docstrings and inline comments in the code should reference either document by section name rather than re-explaining things inline.
 
@@ -11,7 +11,7 @@ This document is for developers and maintainers of `ppsp`. It covers code organi
 - **Stateful and resumable.** Every output is checked for existence before being computed. `--redo` forces re-execution of every product the command would produce, including intermediates.
 - **Classes for domain objects, pure helper functions.** Use `Photo` and `Stack` dataclasses. Keep helper functions pure (inputs → output, no side effects). Keep `cmd_*` functions as thin orchestrators.
 - **Extensibility over premature abstraction.** Add a new variant by adding one entry to a dict. Add a new pipeline step by adding one `cmd_*` function and one argparse entry. Generalize only when there are at least three concrete cases.
-- **Concise docstrings.** Every class and function has a one-line summary docstring. For non-obvious logic, reference the relevant section of README.md or DESIGN.md by name rather than re-explaining inline.
+- **Concise docstrings.** Every class and function has a one-line summary docstring. For non-obvious logic, reference the relevant section of README.md or design.md by name rather than re-explaining inline.
 
 ## Project layout
 
@@ -41,9 +41,11 @@ ppsp/
 ├── test_data/          # gitignored; local Sony ARW + JPG pairs for integration tests
 ├── pyproject.toml
 ├── README.md           # user-facing reference
-├── GUIDE.md            # deep-dive into tools and preset rationale
+├── guide.md            # deep-dive into tools and preset rationale
+├── changelog.md        # user-facing per-version release history
 ├── journal.md          # session-by-session collaboration log (see § Development workflow)
-└── DESIGN.md           # this file
+├── wip.md              # active specs and annotations (flushed when work ships)
+└── design.md           # this file
 ```
 
 ## CLI-to-function mapping
@@ -187,10 +189,10 @@ Three files record different aspects of the project's evolution. They are comple
 | Record | What belongs there |
 |---|---|
 | `git log` | What changed in code and why — the technical, authoritative record |
-| `DESIGN.md` | Architecture decisions with lasting structural significance |
+| `design.md` | Architecture decisions with lasting structural significance |
 | `journal.md` | Session context, human narrative, conversation-driven decisions |
 
-### When to write to DESIGN.md
+### When to write to design.md
 
 Add or update a section here when a decision shapes how future code must be written: a new data model, a constraint that rules out a class of implementations, a non-obvious invariant. Don't duplicate what is already in README.md; reference it by section name instead.
 
@@ -205,11 +207,11 @@ Specs, wireframes, brainstorming, and annotation notes for work currently in pro
    git add wip.md && git commit -m "Annotate YYYY-MM-DD plan"
    ```
 3. Ask Claude to revise based on the annotations. The diff captures the full review round.
-4. When the work ships, commit `wip.md` as-is one final time (for the record), then flush it: relevant decisions go into `journal.md` (decisions/context) or `DESIGN.md` (architecture), and `wip.md` is emptied for the next topic.
+4. When the work ships, commit `wip.md` as-is one final time (for the record), then flush it: relevant decisions go into `journal.md` (decisions/context) or `design.md` (architecture), and `wip.md` is emptied for the next topic.
 
 ### When to write to journal.md
 
-At the end of every working session. The entry summarises what was done, records decisions that are too contextual or transient to belong in DESIGN.md, and tabulates the resulting commits. See journal.md § How to use this file for the format.
+At the end of every working session. The entry summarises what was done, records decisions that are too contextual or transient to belong in design.md, and tabulates the resulting commits. See journal.md § How to use this file for the format.
 
 ## Extensibility
 
