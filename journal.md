@@ -52,6 +52,138 @@ Wall time comes from transcript timestamps. Git numbers come from
 
 ---
 
+## 2026-04-26/27 — Naming polish, GUI overhaul (chain stubs + 8-tab), bug fixes
+
+Long two-part session continuing directly from the previous close. The first part extended
+the naming system (sidecar, Tags/Rating, interactive improvements, models.py refactor); the
+second part was a major GUI overhaul — a 7-tab rewrite, then a second restructure to 8 tabs
+with the chain configurator split into its own Variants tab. A chain-stubs discovery workflow
+was introduced in processing.py and reflected in the GUI's step-by-step Select tab. The
+session ended with three targeted bug fixes surfaced by real usage.
+
+### Naming system extensions
+
+**Tags and Rating columns.** `ppsp_stacks.csv` gained two new columns, giving every stack
+a first-class place to record Lightroom-style tags (comma-separated) and a numeric rating
+(0–5). `cmd_name()` reads and writes them; the GUI Metadata tab has Entry/Spinbox widgets for
+them inline.
+
+**Sidecar writing.** `naming.py` gained `write_sidecar(stack_dir, title, tags, rating)` which
+writes an XMP sidecar (`stack_dir.name + ".xmp"`) containing the same fields. Called by
+`cmd_name` and the GUI's "Save All" button. This makes metadata readable by Lightroom and
+other XMP-aware tools without modifying the RAW files.
+
+**`build_stacks_csv_rows` merge semantics.** The function now merges against the existing CSV
+before returning, so hand-edited Title/Tags/Rating values survive a `ppsp -n` re-run. Previous
+behaviour was to overwrite everything from scratch.
+
+**`ppsp -n` interactive improvements.** The session prompt now shows current values in
+brackets so the user can see what will be kept on empty input. `--title` flag added for
+non-interactive single-stack rename from a script.
+
+**models.py refactor.** `Z_TIERS`, `CT_PRESET_IDS`, `ENFUSE_IDS`, and `TMO_IDS` are now
+derived directly from `variants.py` at import time rather than being duplicated literals.
+Eliminates a class of drift bugs where adding a new TMO preset required edits in two files.
+The ordering of code in `naming.py` was also cleaned up.
+
+### Chain stubs — educational discovery variants
+
+The `ppsp -D` (discover) step now generates intermediate "stub" JPEGs at each processing
+level in addition to the final graded outputs:
+
+| Stub level | Filename suffix | What it shows |
+|---|---|---|
+| Enfuse-only | `{e}.jpg` | Raw HDR fusion with no TMO or grading |
+| Enfuse + TMO | `{e}-{t}.jpg` | After tone-mapping, before colour grading |
+| Enfuse + TMO + grading | `{e}-{t}-{g}.jpg` | Fully processed, no CT variant |
+| Full chain with CT | `{e}-{t}-{g}-{ct}.jpg` | With colour-temperature adjustment |
+
+The stubs are annotated with the chain ID text overlay (via `annotate_image`) and have EXIF
+copied from the middle frame. They appear alongside the final graded outputs in the z-tier
+folder and the Select tab, giving the user a direct visual comparison of what each processing
+step contributes.
+
+**TMO stub annotation bug — found and fixed.** The initial implementation called
+`annotate_image(tmo_jpg)` before the grading loop, corrupting the pixel data that
+`apply_grading()` reads as its source. Fixed by deferring `annotate_image` to after the
+grading loop.
+
+### GUI overhaul
+
+**7-tab rewrite (commit 208f0ab).** Replaced the previous prototype GUI with a full 7-tab
+layout: Rename / Organize / Cull / Metadata / Discover / Generate / Cleanup. Key design
+decisions:
+- Doubled thumbnail size (`_THUMB_SIZE = (384, 256)`).
+- Anti-flicker design: single-click moves keyboard focus only; Space toggles selection;
+  `_update_tile_appearances()` updates tile backgrounds in-place rather than rebuilding
+  widgets, eliminating visible flicker on selection change.
+- Token-based tile classifier (`_chain_tokens()`) replaced `parse_chain()` for determining
+  which step a file belongs to in the Discover tab. Cleaner and handles all stub levels.
+- 4-step Discover tab mirrors the four stub levels (1 Enfuse → 2 TMO → 3 Grading → 4 CT).
+
+**8-tab restructure (commit f268618).** Based on feedback:
+- **Cull** tab reduced to cull-grid review only; no chain configurator.
+- **Variants** tab added (tab 5, between Metadata and Select) — contains the chain
+  configurator, stacks list, and "Generate variants" button. This tab maps to `ppsp -D`
+  conceptually: "a GUI for building the command line."
+- **Discover** renamed **Select** throughout (tab text, frame attributes, keyboard bindings,
+  method names, internal canvas/tile attributes). Select = "build a list of generate targets."
+- **Metadata** tab: small 96×64 thumbnail column loaded from cull preview or z2/z6 dir;
+  full stack folder name and `[N RAW]` count displayed before the editable columns.
+- **Log panel**: replaced `pack()` with a vertical `tk.PanedWindow` — the sash between
+  notebook and log is user-draggable. Initial position set to ~80% of window height after
+  first render via `after(150, _set_initial_sash)`. Collapse/Expand moves the sash rather
+  than hiding the frame.
+
+### Bug fixes
+
+**`_is_chain_pattern` missed alternation syntax.** The function checked for `[*.\[?+]`
+but not `(` or `|`. A spec like `sel4-(fatn|kimn|m08n)-neut-ctw5` was therefore not
+recognised as a regex pattern and was parsed as a literal 4-part chain with tmo_id
+`(fatn|kimn|m08n)` — which failed validation and produced an "Unknown chain spec" warning.
+Fixed by extending the metacharacter set to `[*.({\[?+|]`.
+
+**Unknown chain spec now raises in non-batch mode.** `cmd_discover` gained a `batch: bool`
+parameter (passed from `cli.py`). An unrecognised chain spec in `--variants` now raises
+`ValueError` and halts the run when `batch=False`, instead of logging a warning and silently
+skipping the spec. In batch mode the old warn-and-skip behaviour is retained.
+
+### Open item carried to next session
+
+`ppsp -n` does not re-apply CSV edits back to disk when the CSV has been hand-edited between
+runs. The command currently re-reads disk state as authoritative, so running it after editing
+the CSV has no effect. The direction should be reversed: CSV changes should update folder
+names, EXIF, and sidecars.
+
+### Commits
+
+| Hash | Message |
+|---|---|
+| `15c2969` | Update README: add step 6 --name, renumber steps, update naming scheme docs |
+| `3542d2a` | Sync tests and README with many/lots preset changes from 0bd2690 |
+| `84a6ed4` | Spec: --name improvements, sidecar metadata, models.py refactor |
+| `081f4f1` | Refactor models.py: derive TMO/CT/z-tier sets from variants.py |
+| `68a0154` | Reorder naming related code |
+| `9de39f3` | Naming improvements: CSV schema, sidecar, interactive mode, Tags/Rating, flow |
+| `04a335a` | Spec: GUI flow improvements, tab restructure, chain stubs, discovery steps |
+| `208f0ab` | Rewrite GUI: 7-tab layout, doubled thumbs, anti-flicker, focus/select split |
+| `b87017c` | wip.md: flush completed GUI items; annotate pending chain-stub questions |
+| `6d551cb` | Chain stubs: educational per-step discovery variants + 4-step GUI Discover tab |
+| `e50d5c6` | wip.md: add GUI restructure + CT chain spec fix items |
+| `f268618` | GUI: 8-tab layout (Cull/Variants/Select split); log PanedWindow; metadata thumbs |
+
+### Stats
+
+| | |
+|---|---|
+| Duration | ~11.2h (13:07 – 00:16 EEST) |
+| Commits | 12 · 15c2969 – f268618 |
+| Files | 11 files changed, +1668 insertions(+), -687 deletions(-) |
+| claude-sonnet-4-6 | 6k in · 687k out · 2.8M cache↑ · 50.6M cache↓ · ~$35.95 |
+| **Total** | **~$35.95** |
+
+---
+
 ## 2026-04-26 13:07 — Stack naming: `ppsp -n`, ppsp_stacks.csv, shorthand generation
 
 New feature: human titles for stacks. After culling, the user can name their top stacks
