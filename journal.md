@@ -38,11 +38,11 @@ comes from transcript timestamps. Git numbers come from
 
 | | |
 |---|---|
-| Duration | ~2h (07:56 – 10:00 EEST) |
-| Commits | 4 · a45cfaf – 181f51f |
-| Files | 12 changed · +1916 / −30 |
-| Tokens | — in / — out |
-| Cost | — |
+| Duration | ~Xh (HH:MM – HH:MM EEST) |
+| Commits | N · abc1234 – def5678 |
+| Files | N files changed, +X insertions(+), -Y deletions(-) |
+| claude-sonnet-4-6 | Xk in · Xk out · XM cache↑ · XM cache↓ · ~$X |
+| **Total** | **~$X** |
 
 **Relationship to other documents:**
 - `git log` — what changed in code and why, in technical terms
@@ -94,11 +94,11 @@ after review.
 
 | | |
 |---|---|
-| Duration | ~2h (07:56 – ~10:00 EEST) |
+| Duration | ~3.8h (07:56 – 11:45 EEST) |
 | Commits | 4 · a45cfaf – 181f51f |
-| Files | 12 changed · +1916 / −30 |
-| Tokens | — |
-| Cost | — |
+| Files | 12 files changed, 1916 insertions(+), 30 deletions(-) |
+| claude-sonnet-4-6 | see current session — same JSONL file (bf2f9f9e) |
+| **Total** | see current session |
 
 ---
 
@@ -184,11 +184,11 @@ session.py, interactive.py, gui.py were written in this session and committed in
 
 | | |
 |---|---|
-| Duration | ~5.5h (18:37 – ~00:05 EEST, next day) |
+| Duration | ~6.3h (17:49 – 00:07 EEST) |
 | Commits | 2 · 71b3827 – 02aca59 (+ 3 deferred to next session) |
-| Files | 10 changed · +671 / −249 |
-| Tokens | — |
-| Cost | — |
+| Files | 10 files changed, 671 insertions(+), 249 deletions(-) |
+| claude-sonnet-4-6 | 533 in · 523k out · 2.0M cache↑ · 40.5M cache↓ · ~$27.53 |
+| **Total** | **~$27.53** |
 
 ---
 
@@ -218,9 +218,6 @@ None — implementation in the 2026-04-25 18:37 session.
 |---|---|
 | Duration | unknown (no transcript) |
 | Commits | 0 |
-| Files | — |
-| Tokens | — |
-| Cost | — |
 
 ---
 
@@ -252,11 +249,11 @@ full enumerated space of valid chain strings, and on general CLI output quality.
 
 | | |
 |---|---|
-| Duration | ~unknown (18:40 EEST, end not recorded) |
+| Duration | ~6.0h (18:40 – 00:40 EEST) |
 | Commits | 5 · 611386b – b10e9f1 |
-| Files | 12 changed · +659 / −955 |
-| Tokens | — |
-| Cost | — |
+| Files | 12 files changed, 659 insertions(+), 955 deletions(-) |
+| claude-sonnet-4-6 | 13k in · 390k out · 1.6M cache↑ · 20.2M cache↓ · ~$18.03 |
+| **Total** | **~$18.03** |
 
 ---
 
@@ -284,11 +281,11 @@ preset tables, usability improvements to the interactive workflow, and processin
 
 | | |
 |---|---|
-| Duration | ~multi-day (19:53 2026-04-19 – 16:44 2026-04-21, with breaks) |
+| Duration | ~44.9h wall time (19:53 2026-04-19 – 16:47 2026-04-21, with breaks) |
 | Commits | 5 · d353eed – 7c4295d |
-| Files | 24 changed · +4480 / −10 |
-| Tokens | — |
-| Cost | — |
+| Files | 24 files changed, 4480 insertions(+), 10 deletions(-) |
+| claude-sonnet-4-6 | 6k in · 841k out · 5.5M cache↑ · 45.0M cache↓ · ~$46.89 |
+| **Total** | **~$46.89** |
 
 ---
 
@@ -307,8 +304,8 @@ structure, then iterating to produce the first working implementation.
 
 | | |
 |---|---|
-| Duration | unknown |
+| Duration | ~5.2h (13:29 – 18:39 EEST) |
 | Commits | 1 · 1753f10 |
-| Files | 1 changed · +577 / −0 |
-| Tokens | — |
-| Cost | — |
+| Files | 1 file changed, 577 insertions(+) |
+| claude-sonnet-4-6 | 226 in · 257k out · 1.4M cache↑ · 4.8M cache↓ · ~$10.44 |
+| **Total** | **~$10.44** |
