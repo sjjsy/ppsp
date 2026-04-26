@@ -52,6 +52,69 @@ Wall time comes from transcript timestamps. Git numbers come from
 
 ---
 
+## 2026-04-26 13:07 — Stack naming: `ppsp -n`, ppsp_stacks.csv, shorthand generation
+
+New feature: human titles for stacks. After culling, the user can name their top stacks
+(`ppsp -n`) and the tool stores the titles in EXIF/XMP metadata, renames the stack folders
+and contained files to embed a shorthand, and maintains `ppsp_stacks.csv` as the single
+source of truth for titles and per-stack generate specs.
+
+### Design decisions
+
+**Shorthand algorithm.** "Bedroom B from the door to the window" → "bbfdtw". The spec
+says "omit smaller filler words in the English dictionary". The worked example keeps spatial
+prepositions like "from" and "to" (they carry directional meaning in architectural scene
+titles) and only omits articles and conjunctions ("the", "a", "an", "and", "or", "but").
+The filler set was set conservatively — just those six words — to match the example exactly.
+
+**Stack folder naming.** Named stacks lose the `-stack` suffix; the suffix is replaced by
+the shorthand: `YYYYMMDDHHMMSS-CCCxxx-NNNN-stack/` → `YYYYMMDDHHMMSS-CCCxxx-NNNN-bbfdtw/`.
+Unnamed stacks keep `-stack`. All code that previously detected stacks via `endswith("-stack")`
+was updated to use `is_stack_dir()` from the new `naming.py`, which matches both forms via
+`_STACK_DIR_RE = r"^\d{14}-[a-z0-9]{6}-\d{4}-.+$"`.
+
+**Filename shorthand insertion.** Files inside a named stack get the shorthand inserted after
+NNNN: `NNNN-a.arw` → `NNNN-bbfdtw-a.arw`; `NNNN-z25-sel4-...jpg` → `NNNN-bbfdtw-z25-sel4-...jpg`.
+`parse_chain()` was updated to skip one non-z-tier component between NNNN and the z-tier, so
+named-stack filenames parse correctly.
+
+**ppsp_stacks.csv** (tab-separated, columns: StackFolder, Title, Shorthand, Photos, GenerateSpecs).
+Auto-created on any `ppsp -n` invocation. GenerateSpecs is a comma-separated list of chain specs
+(e.g. `z25-sel4-fatd-dvi1-ctw5`) that `ppsp -g ppsp_stacks.csv` expands per stack. Format is
+detected in `_resolve_variants_for_generate` by checking for the `StackFolder` column header.
+
+**out-BBBB/ files are not renamed.** Files exported to `out-BBBB/` are outside the stack dir and
+would require a full scan to rename. The user regenerates them with `ppsp -g ppsp_stacks.csv`
+after naming if needed. This was noted in the session rather than implemented.
+
+**No new module for cmd_name.** `naming.py` is a pure-utility module (no imports from commands.py),
+and `cmd_name` lives in `commands.py` alongside the other `cmd_*` functions. This avoids the
+circular import that would arise if naming.py imported `_resolve_stack_specs`.
+
+### New files
+- `src/ppsp/naming.py` — shorthand algorithm, stacks CSV I/O, `rename_stack`, metadata writing
+- `tests/test_naming.py` — 20 unit tests
+
+### Modified files
+- `src/ppsp/cli.py` — `--name`/`-n` flag and dispatch
+- `src/ppsp/commands.py` — `cmd_name`; `_resolve_stacks_csv_for_generate`; updated all stack
+  detection to `find_stack_dirs()`; updated `_generate_one`, `_expand_chain_spec_to_all_stacks`,
+  `_derive_stack_from_filename`, `_filename_to_stack_name` for named stacks
+- `src/ppsp/models.py` — `parse_chain()` skips shorthand prefix
+- `tests/test_chain.py` — shorthand-prefix parse test
+
+### Stats
+
+| | |
+|---|---|
+| Duration | ~0.6h (13:07 – 13:44 EEST) |
+| Commits | 1 · 5593cf8 |
+| Files | 6 files changed, +682 insertions(+), -45 deletions(-) |
+| claude-sonnet-4-6 | 6k in · 123k out · 276k cache↑ · 9.5M cache↓ · ~$5.75 |
+| **Total** | **~$5.75** |
+
+---
+
 ## 2026-04-26 (cont.) — Collaboration infrastructure: four-document system, session stats
 
 Continuation of the 07:56 session (same Claude Code JSONL file). The whole session was
