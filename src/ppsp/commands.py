@@ -51,6 +51,7 @@ from .util import get_raw_converter, run_command
 from .variants import (
     GRADING_PRESETS,
     TMO_VARIANTS,
+    Z_TIERS,
     expand_chain_pattern,
     expand_variant_chain_pattern,
     expand_variants,
@@ -78,7 +79,7 @@ def _timed_cmd(fn: _F) -> _F:
 
 
 # ---------------------------------------------------------------------------
-# Step 1
+# RENAME
 # ---------------------------------------------------------------------------
 
 
@@ -187,7 +188,7 @@ def _write_csv_with_order(rows: List[dict], csv_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Step 2
+# ORGANIZE
 # ---------------------------------------------------------------------------
 
 
@@ -243,7 +244,7 @@ def cmd_organize(
 
 
 # ---------------------------------------------------------------------------
-# Step 3
+# CULL
 # ---------------------------------------------------------------------------
 
 
@@ -368,7 +369,7 @@ def _select_representative(stack_dir: Path, rows: list) -> Optional[Path]:
 
 
 # ---------------------------------------------------------------------------
-# Step 4
+# PRUNE
 # ---------------------------------------------------------------------------
 
 
@@ -393,7 +394,139 @@ def cmd_prune(source: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Step 5
+# NAME
+# ---------------------------------------------------------------------------
+
+
+@_timed_cmd
+def cmd_name(
+    source: Path,
+    stacks_specs: Optional[List[str]] = None,
+    title: Optional[str] = None,
+    csv_path: Optional[Path] = None,
+    redo: bool = False,
+) -> None:
+    """Name stacks interactively, from CSV, or inline — see README.md § Naming."""
+    import csv as _csv
+
+    # Always sync ppsp_stacks.csv first.
+    existing = load_stacks_csv(source)
+    rows = build_stacks_csv_rows(source, existing)
+
+    stacks_filter = _resolve_stack_specs(stacks_specs or [], source) if stacks_specs else None
+
+    if csv_path is not None:
+        # CSV mode: apply titles from the supplied stacks CSV.
+        _name_from_csv(source, csv_path, rows, redo=redo)
+    elif title is not None:
+        # Inline mode: apply a single title to the one selected stack.
+        targets = [
+            d for d in find_stack_dirs(source)
+            if stacks_filter is None or d.name in stacks_filter
+        ]
+        if len(targets) != 1:
+            logging.error(
+                "Inline title requires exactly one stack; got %d matching stacks", len(targets)
+            )
+        else:
+            _name_apply_one(targets[0], title, source, rows, redo=redo)
+            rows = build_stacks_csv_rows(source, rows)
+    else:
+        # Interactive mode: prompt for each selected (or all) stack.
+        targets = [
+            d for d in find_stack_dirs(source)
+            if stacks_filter is None or d.name in stacks_filter
+        ]
+        rows_by_folder = {r["StackFolder"]: r for r in rows}
+        for stack_dir in targets:
+            row = rows_by_folder.get(stack_dir.name, {})
+            existing_title = row.get("Title", "")
+            prefix = f"\nStack: {stack_dir.name}  ({row.get('Photos', '?')} photos)"
+            if existing_title:
+                prefix += f"\n  Current: {existing_title}"
+            try:
+                answer = input(prefix + "\n  Title (Enter to keep): ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                break
+            if answer:
+                _name_apply_one(stack_dir, answer, source, rows, redo=redo)
+                rows = build_stacks_csv_rows(source, rows)
+                rows_by_folder = {r["StackFolder"]: r for r in rows}
+
+    save_stacks_csv(source, rows)
+    logging.info("ppsp_stacks.csv updated: %s", source / STACKS_CSV)
+
+
+def _name_apply_one(
+    stack_dir: Path,
+    title: str,
+    source: Path,
+    rows: List[dict],
+    redo: bool = False,
+) -> None:
+    """Apply title to one stack: rename folder+files, write metadata, update rows in-place."""
+    old_name = stack_dir.name
+    new_dir = rename_stack(stack_dir, title, source)
+    if new_dir is None:
+        return
+    write_metadata_to_stack(new_dir, title)
+    shorthand = title_to_shorthand(title)
+    for row in rows:
+        if row["StackFolder"] == old_name or row["StackFolder"] == new_dir.name:
+            row["StackFolder"] = new_dir.name
+            row["Title"] = title
+            row["Shorthand"] = shorthand
+            break
+    else:
+        rows.append({
+            "StackFolder": new_dir.name,
+            "Title": title,
+            "Shorthand": shorthand,
+            "Photos": str(sum(
+                1 for f in new_dir.iterdir()
+                if f.is_file() and f.suffix.lower() in (".arw", ".jpg", ".jpeg", ".tif", ".tiff")
+            )),
+            "GenerateSpecs": "",
+        })
+
+
+def _name_from_csv(
+    source: Path,
+    csv_path: Path,
+    rows: List[dict],
+    redo: bool = False,
+) -> None:
+    """Apply titles from a stacks CSV file to all rows with a non-empty Title field."""
+    import csv as _csv
+
+    if not csv_path.exists():
+        logging.error("CSV not found: %s", csv_path)
+        return
+
+    with open(csv_path, encoding="utf-8", newline="") as fh:
+        csv_rows = list(_csv.DictReader(fh, delimiter="\t"))
+
+    rows_by_folder = {r["StackFolder"]: r for r in rows}
+    for csv_row in csv_rows:
+        folder = csv_row.get("StackFolder", "").strip()
+        title = csv_row.get("Title", "").strip()
+        if not title or not folder:
+            continue
+        stack_dir = source / folder
+        if not stack_dir.exists():
+            logging.warning("Stack dir not found: %s", folder)
+            continue
+        prev = rows_by_folder.get(folder, {})
+        if prev.get("Title") == title and not redo:
+            continue
+        _name_apply_one(stack_dir, title, source, rows, redo=redo)
+        # Refresh index after rename may have changed folder name
+        rows_by_folder = {r["StackFolder"]: r for r in rows}
+
+
+# ---------------------------------------------------------------------------
+# DISCOVER
 # ---------------------------------------------------------------------------
 
 
@@ -561,7 +694,7 @@ def _derive_stack_from_filename(filename: str) -> Optional[str]:
     parts = Path(filename).stem.split("-")
     if len(parts) < 4:
         return None
-    if parts[3] in ("z100", "z25", "z6", "z2"):
+    if parts[3] in Z_TIERS:
         return "-".join(parts[:3]) + "-stack"
     return "-".join(parts[:4])
 
@@ -659,7 +792,7 @@ def _filename_to_stack_name(filename: str) -> Optional[str]:
     parts = Path(filename).stem.split("-")
     if len(parts) < 4:
         return None
-    if parts[3] in ("z100", "z25", "z6", "z2"):
+    if parts[3] in Z_TIERS:
         # Old-style: no shorthand
         return "-".join(parts[:3]) + "-stack"
     # Named stack: shorthand is the 4th component
@@ -718,7 +851,7 @@ def _to_z100(filename: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Step 7
+# GENERATE
 # ---------------------------------------------------------------------------
 
 
@@ -1072,7 +1205,7 @@ def cmd_cleanup(source: Path) -> None:
     removed = 0
     for stack_dir in find_stack_dirs(source):
         for z_dir in stack_dir.iterdir():
-            if z_dir.is_dir() and z_dir.name in ("z100", "z25", "z6", "z2"):
+            if z_dir.is_dir() and z_dir.name in Z_TIERS:
                 shutil.rmtree(z_dir)
                 removed += 1
 
@@ -1082,138 +1215,6 @@ def cmd_cleanup(source: Path) -> None:
         removed += 1
 
     logging.info("Cleanup removed %d directories", removed)
-
-
-# ---------------------------------------------------------------------------
-# Naming
-# ---------------------------------------------------------------------------
-
-
-@_timed_cmd
-def cmd_name(
-    source: Path,
-    stacks_specs: Optional[List[str]] = None,
-    title: Optional[str] = None,
-    csv_path: Optional[Path] = None,
-    redo: bool = False,
-) -> None:
-    """Name stacks interactively, from CSV, or inline — see README.md § Naming."""
-    import csv as _csv
-
-    # Always sync ppsp_stacks.csv first.
-    existing = load_stacks_csv(source)
-    rows = build_stacks_csv_rows(source, existing)
-
-    stacks_filter = _resolve_stack_specs(stacks_specs or [], source) if stacks_specs else None
-
-    if csv_path is not None:
-        # CSV mode: apply titles from the supplied stacks CSV.
-        _name_from_csv(source, csv_path, rows, redo=redo)
-    elif title is not None:
-        # Inline mode: apply a single title to the one selected stack.
-        targets = [
-            d for d in find_stack_dirs(source)
-            if stacks_filter is None or d.name in stacks_filter
-        ]
-        if len(targets) != 1:
-            logging.error(
-                "Inline title requires exactly one stack; got %d matching stacks", len(targets)
-            )
-        else:
-            _name_apply_one(targets[0], title, source, rows, redo=redo)
-            rows = build_stacks_csv_rows(source, rows)
-    else:
-        # Interactive mode: prompt for each selected (or all) stack.
-        targets = [
-            d for d in find_stack_dirs(source)
-            if stacks_filter is None or d.name in stacks_filter
-        ]
-        rows_by_folder = {r["StackFolder"]: r for r in rows}
-        for stack_dir in targets:
-            row = rows_by_folder.get(stack_dir.name, {})
-            existing_title = row.get("Title", "")
-            prefix = f"\nStack: {stack_dir.name}  ({row.get('Photos', '?')} photos)"
-            if existing_title:
-                prefix += f"\n  Current: {existing_title}"
-            try:
-                answer = input(prefix + "\n  Title (Enter to keep): ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print()
-                break
-            if answer:
-                _name_apply_one(stack_dir, answer, source, rows, redo=redo)
-                rows = build_stacks_csv_rows(source, rows)
-                rows_by_folder = {r["StackFolder"]: r for r in rows}
-
-    save_stacks_csv(source, rows)
-    logging.info("ppsp_stacks.csv updated: %s", source / STACKS_CSV)
-
-
-def _name_apply_one(
-    stack_dir: Path,
-    title: str,
-    source: Path,
-    rows: List[dict],
-    redo: bool = False,
-) -> None:
-    """Apply title to one stack: rename folder+files, write metadata, update rows in-place."""
-    old_name = stack_dir.name
-    new_dir = rename_stack(stack_dir, title, source)
-    if new_dir is None:
-        return
-    write_metadata_to_stack(new_dir, title)
-    shorthand = title_to_shorthand(title)
-    for row in rows:
-        if row["StackFolder"] == old_name or row["StackFolder"] == new_dir.name:
-            row["StackFolder"] = new_dir.name
-            row["Title"] = title
-            row["Shorthand"] = shorthand
-            break
-    else:
-        rows.append({
-            "StackFolder": new_dir.name,
-            "Title": title,
-            "Shorthand": shorthand,
-            "Photos": str(sum(
-                1 for f in new_dir.iterdir()
-                if f.is_file() and f.suffix.lower() in (".arw", ".jpg", ".jpeg", ".tif", ".tiff")
-            )),
-            "GenerateSpecs": "",
-        })
-
-
-def _name_from_csv(
-    source: Path,
-    csv_path: Path,
-    rows: List[dict],
-    redo: bool = False,
-) -> None:
-    """Apply titles from a stacks CSV file to all rows with a non-empty Title field."""
-    import csv as _csv
-
-    if not csv_path.exists():
-        logging.error("CSV not found: %s", csv_path)
-        return
-
-    with open(csv_path, encoding="utf-8", newline="") as fh:
-        csv_rows = list(_csv.DictReader(fh, delimiter="\t"))
-
-    rows_by_folder = {r["StackFolder"]: r for r in rows}
-    for csv_row in csv_rows:
-        folder = csv_row.get("StackFolder", "").strip()
-        title = csv_row.get("Title", "").strip()
-        if not title or not folder:
-            continue
-        stack_dir = source / folder
-        if not stack_dir.exists():
-            logging.warning("Stack dir not found: %s", folder)
-            continue
-        prev = rows_by_folder.get(folder, {})
-        if prev.get("Title") == title and not redo:
-            continue
-        _name_apply_one(stack_dir, title, source, rows, redo=redo)
-        # Refresh index after rename may have changed folder name
-        rows_by_folder = {r["StackFolder"]: r for r in rows}
 
 
 # ---------------------------------------------------------------------------

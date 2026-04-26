@@ -93,11 +93,6 @@ def _build_parser():
 
     # Command flags
     cmds = parser.add_argument_group("commands")
-    cmds.add_argument("--name", "-n", nargs="*", metavar="TITLE_OR_CSV",
-                      help="Name stacks: -n (interactive all), -n ppsp_stacks.csv (from CSV), "
-                           "-s NNNN -n 'My Title' (inline single stack), "
-                           "-s NNNN NNNN -n (interactive for those stacks). "
-                           "Creates/updates ppsp_stacks.csv.")
     cmds.add_argument("--rename", "-r", nargs="*", metavar="FILE",
                       help="Normalize filenames and write ppsp_photos.csv")
     cmds.add_argument("--organize", "-o", nargs="*", metavar="FILE",
@@ -106,6 +101,11 @@ def _build_parser():
                       help="Generate labeled culling previews in cull/")
     cmds.add_argument("--prune", "-P", action="store_true",
                       help="Remove stack folders with no surviving cull preview (destructive)")
+    cmds.add_argument("--name", "-n", nargs="*", metavar="TITLE_OR_CSV",
+                      help="Name stacks: -n (interactive all), -n ppsp_stacks.csv (from CSV), "
+                           "-s NNNN -n 'My Title' (inline single stack), "
+                           "-s NNNN NNNN -n (interactive for those stacks). "
+                           "Creates/updates ppsp_stacks.csv.")
     cmds.add_argument("--discover", "-D", action="store_true",
                       help="Generate variants with annotations for discovery (see options -z, -s and -V)")
     cmds.add_argument("--generate", "-g", action="store_true",
