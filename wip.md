@@ -8,12 +8,22 @@ commit annotated state → revise → when shipped, commit final state then flus
 content here and summarise into journal.md and possibly design.md.
 
 
-## Improvements to the --name command and its addition to the interactive CLI and GUI flows
-- When `ppsp -n` is launched without batch mode it asks whether a) to ask for names one-by-one in terminal or b) to write the ppsp_stacks.csv (with empty Title and Shorthand columns) and then open it with xdg-open for editing after which to extract any added names from it (as if that CSV was given as the CLI argument for the command in the first place). Any missing shorthands should be computed from the Title if unspecified.
-- The Stack class instance should distinguish between types of photos in its folder. The primary photos in the stack are the raw photos (e.g. ARW, ORF). All other "photos" in that stack are derivatives. So the "Photos" count for the ppsp_stack.csv should reflect these primary photos, not the total number of image files in the folder. Please fix.
-- Add a `Tags` and `Rating` column into the ppsp_stacks.csv before the `GenerateSpecs` column. Move the `Title` and `Shorthand` columns to be after the `Photos` column. Rename the `Photos` column to `RawPhotoCount`.
-- After an interactive `ppsp -n` round or the ingestion of the CSV file from a CLI arg, any identified updates should be done.
-- The tool should store a sidecar metadata file in the stack folder with the same name as the primary photo but with the .json suffix (assuming you agree JSON is a good format; Some tools favor .xmp with XML metadata). The sidecar should include the title, tags and rating information and those should be synced with the columns in the CSV and the actual EXIF/XMP tags of the files, such that those would be available also on third party photo management software.
-- The sidecar metadata file helps in noticing which metadata was changed through the CSV edits and which remained the same, to avoid having to check and update the metadata from the images. The --cleanup command should not delete these metadata files even though the information is already embedded into the photo files as well.
-- Both the CLI and GUI flows should include a metadata edit step between the stack culling and discovery steps.
-- I notice models.py contains _KNOWN_TMOS, CTs and z-tier lists in the code as hard coded string lists. Please refactor those to use the definitions from variants.py such that information does not need to be duplicated and maintained in several places.
+## Improvements to the GUI flow
+- Add a note the GUI app and the GUI CLI option that the feature is WiP (Work in Progress).
+- The "Discover", "Review" and "Export" tabs should be named "Cull", "Discover", and "Generate"
+- Ensure there is a "Metadata" tab/step between the Cull and Discover steps that allows the editing of title, tags and rating.
+- In general the GUI should match the flow of the whole tool: Indeed add the Rename, Organize and Cleanup steps/tabs into the tool as well into their correct positions and with the relevant options.
+- The log should always be visible on the lower one third of the window but collapsible. It should auto uncollapse when starting to generate either discovery variants or exports.
+- The thumbnails in all the views should be double the width and height.
+- The double click to open full screen does not work. Let's make it such that clicking does moves the "focus" / selection to the image, but does not select it yet as a win.
+- Toggle select/unselect and other operations result in the view flickering. This should not happen.
+- With the arrows one can move the selection/focus in the grid and with F move to full screen, with D discard the variant, with Space select or unselect it.
+- While browsing the candidates in full view, pressing 'c' (c for compare) should show the previously selected variant, to facilitate comparison.
+- The relevant keyboard shortcuts for each window/view should always be visible
+- In the full screen view of the stack culling phase, show the photo title, rating and tags if available
+- I presume it is the "Session winners" that should by default be the variant source and it should be at the top of the radio select.
+- The Z-tier choice should be available at the top of the Output options with the default preselected.
+- In general the GUI is a GUI for the whole tool but it should work even if some steps would be done before or after via the CLI only.
+- Let's refine the whole tool's discovery generation logic such that it generates also chain stub variants: Only enfuse applied, only enfuse + TMO applied, only enfuse + TMO + grading applied. In general, consider refactoring the chain pattern processing logic in the codebase such that it is flexible.
+- In the GUI's enfuse and tmo selection steps only show the "chain stub" variants that allow comparison of like vs like (e.g. sel4-fatn vs sel4-fatc without grading differences) that helps make correct decisions within the enfuse or tmo step.
+- Add the color temperature discovery/selection step as the fourth step in the GUI's Discovery tab.
