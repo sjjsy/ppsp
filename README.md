@@ -586,6 +586,8 @@ ruff check src/
 
 **Development journal:** [journal.md](journal.md) is a session-by-session narrative log of collaboration and decisions — the human complement to `git log`. Each entry summarises what a working session covered and which commits it produced. Design decisions with lasting architectural significance go in [DESIGN.md](DESIGN.md) instead.
 
+**Active work:** [wip.md](wip.md) holds specs, wireframes, and annotation notes while work is in flight. It is committed as a snapshot when each piece of work ships, then flushed and refilled for the next topic. See DESIGN.md § Development workflow for the full protocol.
+
 ## Further reading
 
 For a deep-dive into the underlying tools and the reasoning behind ppsp's built-in presets, see **[GUIDE.md](GUIDE.md)**. It covers:

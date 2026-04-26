@@ -194,19 +194,22 @@ Three files record different aspects of the project's evolution. They are comple
 
 Add or update a section here when a decision shapes how future code must be written: a new data model, a constraint that rules out a class of implementations, a non-obvious invariant. Don't duplicate what is already in README.md; reference it by section name instead.
 
+### Active work: wip.md
+
+Specs, wireframes, brainstorming, and annotation notes for work currently in progress go in `wip.md`. Content there is not finished or committed to the rest of the documentation.
+
+**Lifecycle:**
+1. Claude writes a spec or plan into `wip.md`.
+2. Review it by editing inline with `TODO`/`FIXME` annotations, then commit:
+   ```
+   git add wip.md && git commit -m "Annotate YYYY-MM-DD plan"
+   ```
+3. Ask Claude to revise based on the annotations. The diff captures the full review round.
+4. When the work ships, commit `wip.md` as-is one final time (for the record), then flush it: relevant decisions go into `journal.md` (decisions/context) or `DESIGN.md` (architecture), and `wip.md` is emptied for the next topic.
+
 ### When to write to journal.md
 
-At the end of every working session. The entry summarises what was done, records decisions that are too contextual or transient to belong in DESIGN.md, and tabulates the resulting commits. See journal.md § How to use this file for the format and annotation workflow.
-
-### Annotation workflow
-
-When Claude writes a plan or spec in journal.md (or anywhere), review it by editing inline with `TODO`/`FIXME` annotations, then commit the annotated version before asking Claude to revise:
-
-```
-git add journal.md && git commit -m "Annotate YYYY-MM-DD plan"
-```
-
-The diff between the annotated commit and the revised one captures the full review round with spatial context — the comment lives next to the thing it responds to.
+At the end of every working session. The entry summarises what was done, records decisions that are too contextual or transient to belong in DESIGN.md, and tabulates the resulting commits. See journal.md § How to use this file for the format.
 
 ## Extensibility
 

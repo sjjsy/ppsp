@@ -19,16 +19,22 @@ The git log of this file is itself a record of when entries were written.
 document directly with inline TODO/FIXME annotations. Then commit the annotated version before
 asking Claude to revise:
 ```
-git add journal.md && git commit -m "Annotate YYYY-MM-DD plan"
+git add wip.md && git commit -m "Annotate YYYY-MM-DD plan"
 ```
 The diff between the annotated commit and the revised one captures the full review round.
 This approach gives spatially-anchored feedback (the comment lives next to the thing it
 responds to) while still preserving the exchange in git history.
 
+**Active work lives in wip.md.** Specs, wireframes, brainstorming, and review annotations go
+there while work is in flight. When a piece of work is done, wip.md is committed as-is
+(capturing the annotated state for the record), then flushed: the relevant decisions are
+summarised into journal.md and DESIGN.md, and wip.md is emptied for the next topic.
+
 **Relationship to other documents:**
 - `git log` — what changed in code and why, in technical terms
 - `DESIGN.md` — architecture decisions with lasting structural significance
 - `journal.md` — session context, conversation-driven decisions, human narrative
+- `wip.md` — active specs and annotations; flushed to the above when work ships
 
 ---
 
