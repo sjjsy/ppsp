@@ -1272,6 +1272,106 @@ def cmd_cleanup(source: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Export
+# ---------------------------------------------------------------------------
+
+
+@_timed_cmd
+def cmd_export(
+    source: Path,
+    dest: Path,
+    stacks_specs: Optional[List[str]] = None,
+    resolution: Optional[int] = None,
+    variants_arg: Optional[str] = None,
+) -> None:
+    """Hard-link (or copy) images from out-*/ to dest — see README.md § --export.
+
+    Filters apply independently:
+      stacks_specs — limit to matching stacks (same syntax as --stacks)
+      resolution   — restrict to out-{resolution}/ only
+      variants_arg — limit to images whose chain portion matches the spec
+    """
+    dest.mkdir(parents=True, exist_ok=True)
+
+    stacks_filter = _resolve_stack_specs(stacks_specs or [], source)
+
+    if resolution is not None:
+        out_dirs = [source / f"out-{resolution}"]
+        if not out_dirs[0].is_dir():
+            logging.warning("No out-%d/ directory found under %s", resolution, source)
+            return
+    else:
+        out_dirs = sorted(d for d in source.glob("out-*/") if d.is_dir())
+        if not out_dirs:
+            logging.warning("No out-*/ directories found under %s", source)
+            return
+
+    variant_filter = _build_variant_filter(variants_arg) if variants_arg else None
+
+    linked = skipped = 0
+    for out_dir in out_dirs:
+        for img in sorted(out_dir.glob("*.jpg")):
+            if stacks_filter is not None:
+                sname = _filename_to_stack_name(img.name)
+                if not sname or sname not in stacks_filter:
+                    continue
+            if variant_filter is not None and not variant_filter(img.name):
+                continue
+            dst = dest / img.name
+            if dst.exists():
+                skipped += 1
+                continue
+            try:
+                os.link(img, dst)
+            except OSError:
+                shutil.copy2(img, dst)
+            linked += 1
+
+    logging.info("Exported %d images to %s (%d already existed)", linked, dest, skipped)
+
+
+def _build_variant_filter(variants_arg: str) -> Callable[[str], bool]:
+    """Return a filename predicate matching images whose chain suffix fits variants_arg."""
+    _CHAIN_RE = re.compile(r"-z(?:100|25|6|2)-(.+)\.jpg$")
+
+    tokens = [t.strip() for t in variants_arg.split(",") if t.strip()]
+
+    if any("-" in t or _is_chain_pattern(t) for t in tokens):
+        # Chain spec / regex mode: expand to concrete chain strings
+        chains: Set[str] = set()
+        for t in tokens:
+            normalised = re.sub(r"^z(100|25|6|2)-", "", t)
+            if _is_chain_pattern(normalised):
+                chains.update(expand_variant_chain_pattern(normalised))
+            else:
+                chains.add(normalised)
+
+        def _chain_filter(filename: str) -> bool:
+            m = _CHAIN_RE.search(filename)
+            return bool(m and m.group(1) in chains)
+        return _chain_filter
+
+    # Preset / bare-ID mode: build cross-product of matching chain strings
+    enfuse_ids, tmo_ids, grading_ids, ct_ids = expand_variants(variants_arg)
+    chains_set: Set[str] = set()
+    for e in enfuse_ids:
+        for g in grading_ids:
+            chains_set.add(f"{e}-{g}")
+            for ct in ct_ids:
+                chains_set.add(f"{e}-{g}-{ct}")
+        for t in tmo_ids:
+            for g in grading_ids:
+                chains_set.add(f"{e}-{t}-{g}")
+                for ct in ct_ids:
+                    chains_set.add(f"{e}-{t}-{g}-{ct}")
+
+    def _id_filter(filename: str) -> bool:
+        m = _CHAIN_RE.search(filename)
+        return bool(m and m.group(1) in chains_set)
+    return _id_filter
+
+
+# ---------------------------------------------------------------------------
 # Full workflow
 # ---------------------------------------------------------------------------
 

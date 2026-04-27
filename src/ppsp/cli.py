@@ -10,6 +10,7 @@ from .commands import (
     cmd_cleanup,
     cmd_cull,
     cmd_discover,
+    cmd_export,
     cmd_generate,
     cmd_name,
     cmd_organize,
@@ -114,6 +115,9 @@ def _build_parser():
                       help="Convert ARW files to enhanced JPGs")
     cmds.add_argument("--cleanup", "-C", action="store_true",
                       help="Remove z-tier discovery folders and variants/ (destructive)")
+    cmds.add_argument("--export", "-X", metavar="DIR",
+                      help="Hard-link (or copy) images from out-*/ to DIR; "
+                           "use --stacks, --resolution, --variants to filter")
 
     return parser
 
@@ -208,6 +212,18 @@ def main(argv=None) -> None:
 
     elif args.cleanup:
         cmd_cleanup(source)
+
+    elif args.export is not None:
+        dest = Path(args.export)
+        if not dest.is_absolute():
+            dest = source / args.export
+        cmd_export(
+            source,
+            dest=dest,
+            stacks_specs=stacks_specs,
+            resolution=args.resolution,
+            variants_arg=args.variants,
+        )
 
     else:
         # Full interactive / batch workflow
