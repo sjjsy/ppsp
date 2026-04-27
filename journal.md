@@ -143,11 +143,11 @@ After real-world testing, the warm CT presets were revised twice:
 
 | | |
 |---|---|
-| Duration | ~19.1h (13:07 – 08:12 EEST) |
+| Duration | ~0.7h (07:30 – 08:13 EEST) |
 | Commits | 4 · 96e17e4 – c7497d8 |
 | Files | 7 files changed, +197 insertions(+), -75 deletions(-) |
-| claude-sonnet-4-6 | 6k in · 798k out · 3.1M cache↑ · 58.6M cache↓ · ~$41.26 |
-| **Total** | **~$41.26** |
+| claude-sonnet-4-6 | — in · 111k out · 0.3M cache↑ · 8.0M cache↓ · ~$5.31 |
+| **Total** | **~$5.31** |
 
 ---
 
