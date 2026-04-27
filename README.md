@@ -78,6 +78,7 @@ Running `ppsp` without a command flag walks you through all steps interactively.
 | 9 | `--generate` | `-g` | Generate variants for publishing |
 | — | `--cleanup` | `-C` | Remove z-tier discovery folders and `variants/` |
 | — | `--arws-enhance [FILES...]` | `-e` | Convert ARW files to enhanced JPGs |
+| — | `--export DIR` | `-X` | Hard-link images from out-*/ to DIR; filter with -s, -i, -V |
 
 **All options** — flags that tune command behaviour:
 
@@ -632,6 +633,8 @@ ppsp -z z25 -q 70 -i 2048 -s 2116 2126 -gV 'sel4-.*-neut'
 ppsp -z z25 -q 70 -i 2048 -s 2116 2126 -gV 'sel4-(kimn|r02h)-dens-ctw4'
 # Manually go through the outputs and delete the ones that you do not need
 eog out-2048/
+# Export (hard link) the ones you want to a specific directory
+ppsp -z z25 -i 2048 -s 2474 2489 2501 -V 'sel5-fatn-dvi1-ctr1' -X /home/samsy/dwl/photos/2026/2026-04-27__mt17d39/
 # Step 9: Cleanup the intermediary files
 ppsp -C
 ```
