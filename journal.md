@@ -52,6 +52,105 @@ Wall time comes from transcript timestamps. Git numbers come from
 
 ---
 
+## 2026-04-27 — Comment field, CT/CG presets, ppsp -n CSV fix, --export command
+
+Short focused session. Four backlog items from wip.md were implemented, followed by a
+round of CT preset tuning driven by real photoshoot results.
+
+### Comment field in ppsp_stacks.csv
+
+`ppsp_stacks.csv` now has a `Comment` column placed between `Rating` and `GenerateSpecs`.
+The field flows through the full naming pipeline:
+
+- `build_stacks_csv_rows` preserves an existing Comment when rebuilding rows from disk.
+- `write_sidecar` stores it as `"comment"` in the JSON sidecar.
+- `write_title_metadata` writes it to `XMP:Description` and `IPTC:Caption-Abstract` via
+  exiftool when EXIF is flushed.
+- `_name_apply_one`, `_name_from_csv` accept and propagate `comment=`.
+- The GUI Metadata tab has a new Comment Entry column; "Save All" writes it to CSV and
+  sidecar (EXIF write happens on the next `ppsp -n` / rename-stack-dirs call).
+
+### CT colour-correction presets (ctr1, ctg1)
+
+Two new CT presets for correcting room-specific colour casts that some TMOs introduce:
+
+- `ctr1` — reduces red (R gamma 0.90, G +1.03, B +1.05); counters reddish bathroom photos.
+- `ctg1` — reduces green (G gamma 0.90, R +1.02, B +1.02); counters green-carpet living-room
+  photos.
+
+Neither uses `+level-colors` since the intent is pure channel correction rather than
+white-balance shift.
+
+### dens grading preset
+
+`dens` is a variant of `deno` with `-modulate 100,88,100` (saturation 88%) instead of 105%.
+Use when the TMO already produces vivid output and deno's slight boost tips it over — the
+despeckling and sharpening are identical to `deno`, only the saturation is pulled back.
+
+### ppsp -n CSV direction fix
+
+Two related bugs in `cmd_name` / `_name_from_csv`:
+
+**Bug 1 — skip condition ignores whether the folder was ever renamed.**
+`_name_from_csv` compared the in-memory title (already loaded from the CSV) to the CSV title
+and always saw them equal → skipped the apply step even when the folder still had its
+`-stack` suffix. Fix: added `needs_rename = stack_dir.name.rsplit("-", 1)[-1] != shorthand`
+to the skip guard, so a folder is renamed (and EXIF written) whenever its last segment
+doesn't already match `title_to_shorthand(title)`.
+
+**Bug 2 — plain `ppsp -n` never applied prior CSV edits.**
+In interactive mode, the code prompted for titles without first syncing any edits the user
+had made directly to `ppsp_stacks.csv`. Fix: when the CSV exists and has titles, call
+`_name_from_csv` with it before showing the interactive prompt. Titles already on disk are
+skipped (no double-write) via the `needs_rename` guard above.
+
+### --export / -X command
+
+New `cmd_export(source, dest, stacks_specs, resolution, variants_arg)`:
+
+```
+ppsp -X ~/dwl/photos/2026/
+ppsp -X ~/dwl/photos/2026/ -s 2474 2489 -i 2048
+ppsp -X ~/dwl/photos/2026/ -V 'sel5-m06s-dvi1'
+ppsp -X ~/dwl/photos/2026/ -V 'sel5-.*-dvi1' -s 2116 2126
+```
+
+Scans all `out-*/` directories (or just `out-{resolution}/` when `-i` is given), then
+filters by stacks and variant spec before hard-linking (`os.link`) each image into `dest`.
+Falls back to `shutil.copy2` for cross-device destinations. The variant filter is handled
+by `_build_variant_filter` which accepts chain specs, regex patterns, preset levels, or
+comma-separated IDs — the same syntax as `-V` for `-D` and `-g`.
+
+### CT preset tuning (user-driven)
+
+After real-world testing, the warm CT presets were revised twice:
+
+- ctw4: G gamma reduced to 0.94 (from 1.04 / 1.00), B to 0.88 (from 0.90) — stronger warm
+  push with less green contamination.
+- ctw5: G 0.98 (from 1.03 / 1.02), B 0.94 (from 0.95) — same direction at lower intensity.
+- ctc7: G 0.98 (from 0.97) — minor correction.
+
+### Commits
+
+| Hash | Message |
+|---|---|
+| `96e17e4` | Tune CT warm presets; update README usage example; expand wip |
+| `6bb8216` | Implement four wip items: Comment field, CT color correction, dens grading, ppsp -n CSV fix |
+| `1e173b2` | Tune CT channel gammas further; use dens in README example; add export wip item |
+| `c7497d8` | Add --export / -X command to hard-link out-*/ images to a destination dir |
+
+### Stats
+
+| | |
+|---|---|
+| Duration | ~19.1h (13:07 – 08:12 EEST) |
+| Commits | 4 · 96e17e4 – c7497d8 |
+| Files | 7 files changed, +197 insertions(+), -75 deletions(-) |
+| claude-sonnet-4-6 | 6k in · 798k out · 3.1M cache↑ · 58.6M cache↓ · ~$41.26 |
+| **Total** | **~$41.26** |
+
+---
+
 ## 2026-04-26/27 — Naming polish, GUI overhaul (chain stubs + 8-tab), bug fixes
 
 Long two-part session continuing directly from the previous close. The first part extended

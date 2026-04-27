@@ -8,4 +8,4 @@ commit annotated state → revise → when shipped, commit final state then flus
 content here and summarise into journal.md and possibly design.md.
 
 ## Open items
-- Add a `--export DIR, -X` convenience command which takes a destination dir as input and then exports all the images from out folders with "cp -l" style hard linking to the destination. Any --stacks --resolution --variants and other relevant args should work in narrowing the selection of which exports to copy.
+
