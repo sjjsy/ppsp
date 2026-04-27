@@ -619,59 +619,21 @@ ppsp -n
 # Manually add a good processing chain guess for each stack in ppsp_stacks.csv that you want to generate (f. ex. `sel4-fatn-neut`)
 # Step 8: Generate the outputs
 ppsp -z z25 -q 70 -i 2048 -V ppsp_stacks.csv -g
-# Step 8: Generate a warmer alternative for each output
-ppsp -z z25 -q 70 -i 2048 -s out-2048/* -gV sel4-fatn-neut-ctw5
-# For a specific stack, create more alternatives
-ppsp -z z25 -q 70 -i 2048 -s 2126 -gV sel4-(fatn|kimn|m08n)-neut-ctw5
-ppsp -z z25 -q 70 -i 2048 -s 2116 2126 -gV 'sel5-kimn-dvi1-ctw5'
-ppsp -z z25 -q 70 -i 2048 -s out-2048/* -gV sel4-kimv-dvi1-ctw5
+# Step 8: Generate warmer alternatives for each output
+ppsp -z z25 -q 70 -i 2048 -s out-2048/* -gV 'sel5-fatc-neut-ctw5,sel5-kimv-dvi1-ctw5'
+# For specific stacks (bathroom photos) generate normal temperature versions with specific TMO-grading combos
+ppsp -z z25 -q 70 -i 2048 -s 2474 2489 2501 -gV 'sel5-(kimn|kimv|m06s)-dvi1,sel5-(fatn|fatc|fats)-deno'
+ppsp -z z25 -q 70 -i 2048 -s 2474 2489 2501 -gV 'sel5-m06s-dvi1'
+# Hardlink the photos to the upload directory
+cp -l out-2048/*-{2474,2489,2501}-*-m06s-*.jpg ~/dwl/photos/2026/
+# For other specific difficult stacks (living room with green carpet and strong inbound light), create all TMO alternatives (a sort of targeted discovery with generate)
+ppsp -z z25 -q 70 -i 2048 -s 2116 2126 -gV 'sel4-.*-neut'
+ppsp -z z25 -q 70 -i 2048 -s 2116 2126 -gV 'sel4-(kimn|r02h)-dvi1-ctw4'
 # Manually go through the outputs and delete the ones that you do not need
 eog out-2048/
 # Step 9: Cleanup the intermediary files
 ppsp -C
-
-# Create discovery variants for the processing chain combinations that will surely include the best versions for each photo in this photoshoot (what is best for a photo depends on lighting and other photo-specific circumstances)
-ppsp -DV 'sel4,r02p,fatd,kimd,m06p,neut,deno,dvi1,dvi2' -z z6
-# Now we have 24 variants for each stack. Find the best enfuse + tone-mapping combo by comparing the denoised versions:
-eog variants/*-deno.jpg
-
-# Generate photos at z25 with one enfuse and one color-grading preset
-ppsp -gV 'sel4,r02p,fatd,fatn,kimd,m06p,deno' -z z25
-# For a specific stack, discover a specific variant
-ppsp -DV sel6-r02p-dvi2 -z z6 -s 2101
-ppsp -gz z25
 ```
-
-## Usage example (actually used on 2026-04-22)
-
-
-STACKSA="2136 2251 2276 2320 2441 2444 2489"
-
-# EOF
-
-#STACKSA="2441 2444 2489"
-
-# Tight best guess selection that should include the best variant for all stacks
-ppsp -gz z25 -q 70 -i 2048 -V 'sel4-fatd-dvi1-ctw5' -s $STACKSA
-ppsp -gz z25 -q 70 -i 2048 -V 'sel4-fatn-dvi1-ctw5' -s $STACKSA
-ppsp -gz z25 -q 70 -i 2048 -V 'sel4-kimd-dvi1' -s $STACKSA
-ppsp -gz z25 -q 70 -i 2048 -V 'sel4-r02p-dvi1' -s $STACKSA
-
-# Specific bests
-
-## 2136 -- rh__pöydältä_ikkunoihin
-ppsp -z z25 -q 70 -i 2048 -s 2136 -gV sel4-fatn-deno-ctw5
-ppsp -z z25 -q 70 -i 2048 -s 2136 -gV sel4-r02p-dvi1-ctw5
-
-
-# New flow
-
-
-# OLD
-ppsp -gs 2136 -z z25 -V 'sel4,fatd,fatn,dvi1,ctw5'
-ppsp -gs 2251 -z z25 -V 'sel4,fatd,fatn,dvi1,ctw5' # 'sel4-(fatn|r02p)-(warm|dv1w)'
-ppsp -gs 2276 -z z25 -V 'sel4,fatn,dvi1-ctw5'
-
 
 ## Development
 
