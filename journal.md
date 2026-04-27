@@ -1,54 +1,34 @@
 # ppsp Development Journal
 
-Human-readable collaboration log: one entry per working session.
-The git log is the technical record; this file is the narrative one — it captures context, the
-reasoning behind decisions, and which commits a session produced.
+Narrative log of reasoning and session context. Reverse-chronological order.
 
-Entries are in reverse-chronological order. Timestamps are local time (EEST, UTC+3).
+Active work and specs live in `wip.md`. After a work session, and/or
+completion of a major task, summarize decisions and the work done here,
+update `design.md` if structural and `README.md` when relevant, and
+flush `wip.md`.
 
-## How to use this file
+## Entry requirements
 
-**Reading:** each entry has a short summary, decisions worth recording, and a commits table.
-Design decisions with lasting architectural significance go in design.md; ephemeral discussion
-is omitted here.
+- Title: YYYY-MM-DD HH:mm — Descriptive summary of topics, changes and impacts
+- Content: Focus on *why* decisions were made since the actual changes can always be found with git. Omit ephemeral chatter.
+- Closing: Every entry must end with Commits and Stats tables (see below)
 
-**Writing an entry:** at the end of a session, ask Claude to write the entry and commit it.
-The git log of this file is itself a record of when entries were written.
+### Commits
 
-**Annotation workflow:** when Claude writes a plan or design spec, review it by editing the
-document directly with inline TODO/FIXME annotations. Then commit the annotated version before
-asking Claude to revise:
-```
-git add wip.md && git commit -m "Annotate YYYY-MM-DD plan"
-```
-The diff between the annotated commit and the revised one captures the full review round.
-This approach gives spatially-anchored feedback (the comment lives next to the thing it
-responds to) while still preserving the exchange in git history.
+| Hash | Message |
+|---|---|
+| [hash] | [message] |
+| [hash] | [message] |
 
-**Active work lives in wip.md.** Specs, wireframes, brainstorming, and review annotations go
-there while work is in flight. When a piece of work is done, wip.md is committed as-is
-(capturing the annotated state for the record), then flushed: the relevant decisions are
-summarised into journal.md and design.md, and wip.md is emptied for the next topic.
+### Stats
 
-**Session stats:** each entry closes with a Stats table covering wall time,
-commit count and range, git diff summary, and logged token and estimated cost figures.
-Wall time comes from transcript timestamps. Git numbers come from
-`git diff --stat <first>^..<last>`. Token and cost figures are extracted from
-`~/.claude/projects/*/\*.jsonl` at session end; leave as `—` if unavailable.
-
-| | |
+| Item | Details |
 |---|---|
 | Duration | ~Xh (HH:MM – HH:MM EEST) |
-| Commits | N · abc1234 – def5678 |
-| Files | N files changed, +X insertions(+), -Y deletions(-) |
-| claude-sonnet-4-6 | Xk in · Xk out · XM cache↑ · XM cache↓ · ~$X |
-| **Total** | **~$X** |
-
-**Relationship to other documents:**
-- `git log` — what changed in code and why, in technical terms
-- `design.md` — architecture decisions with lasting structural significance
-- `journal.md` — session context, conversation-driven decisions, human narrative
-- `wip.md` — active specs and annotations; flushed to the above when work ships
+| Commits | N · [start_hash] – [end_hash] |
+| Files | N files changed, +X / -Y |
+| [model] | Xk in · Xk out · XM cache · ~$X |
+| **Totals** | Xk in · Xk out · XM cache · ~$X |
 
 ---
 
