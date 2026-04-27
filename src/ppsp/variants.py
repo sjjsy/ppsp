@@ -232,14 +232,14 @@ CT_PRESETS: Dict[str, List[str]] = {
     "ctw4": [
         "+level-colors", "black,#fff8e8",
         "-channel", "R", "-gamma", "1.10",
-        "-channel", "G", "-gamma", "1.00",
-        "-channel", "B", "-gamma", "0.90", "+channel",
+        "-channel", "G", "-gamma", "0.94",
+        "-channel", "B", "-gamma", "0.88", "+channel",
     ],
     "ctw5": [
         "+level-colors", "black,#fffef5",
         "-channel", "R", "-gamma", "1.07",
-        "-channel", "G", "-gamma", "1.02",
-        "-channel", "B", "-gamma", "0.95", "+channel",
+        "-channel", "G", "-gamma", "0.98",
+        "-channel", "B", "-gamma", "0.94", "+channel",
     ],
     "ctd6": [
         "+level-colors", "black,#fffffe",
@@ -247,7 +247,7 @@ CT_PRESETS: Dict[str, List[str]] = {
     "ctc7": [
         "+level-colors", "black,#f5f8ff",
         "-channel", "R", "-gamma", "0.95",
-        "-channel", "G", "-gamma", "0.97",
+        "-channel", "G", "-gamma", "0.98",
         "-channel", "B", "-gamma", "1.06", "+channel",
     ],
     "ctc9": [

@@ -628,7 +628,8 @@ ppsp -z z25 -q 70 -i 2048 -s 2474 2489 2501 -gV 'sel5-m06s-dvi1'
 cp -l out-2048/*-{2474,2489,2501}-*-m06s-*.jpg ~/dwl/photos/2026/
 # For other specific difficult stacks (living room with green carpet and strong inbound light), create all TMO alternatives (a sort of targeted discovery with generate)
 ppsp -z z25 -q 70 -i 2048 -s 2116 2126 -gV 'sel4-.*-neut'
-ppsp -z z25 -q 70 -i 2048 -s 2116 2126 -gV 'sel4-(kimn|r02h)-dvi1-ctw4'
+# Then realize two TMOs might be best with slight desaturation and warmup
+ppsp -z z25 -q 70 -i 2048 -s 2116 2126 -gV 'sel4-(kimn|r02h)-dens-ctw4'
 # Manually go through the outputs and delete the ones that you do not need
 eog out-2048/
 # Step 9: Cleanup the intermediary files
