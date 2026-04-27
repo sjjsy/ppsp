@@ -861,7 +861,7 @@ class App:
         # Thumb placeholder column (width matches _META_THUMB_SIZE[0])
         tk.Label(col_hdr, text="", bg="#ddd",
                  width=_META_THUMB_SIZE[0] // 8).pack(side="left", padx=2)
-        for text, w in [("Folder / RAW count", 36), ("Title", 28), ("Tags", 22), ("Rating", 8)]:
+        for text, w in [("Folder / RAW count", 36), ("Title", 28), ("Tags", 22), ("Rating", 8), ("Comment", 28)]:
             tk.Label(col_hdr, text=text, bg="#ddd", font=("mono", 9, "bold"),
                      width=w, anchor="w").pack(side="left", padx=2)
 
@@ -903,6 +903,7 @@ class App:
             title = row.get("Title", "")
             tags = row.get("Tags", "")
             rating = row.get("Rating", "")
+            comment = row.get("Comment", "")
 
             stack_dir = self.source / sname
             raw_count = sum(
@@ -938,11 +939,15 @@ class App:
             ttk.Spinbox(r, from_=0, to=5, textvariable=rating_var, width=5).pack(
                 side="left", padx=2)
 
+            comment_var = tk.StringVar(value=comment)
+            ttk.Entry(r, textvariable=comment_var, width=28).pack(side="left", padx=2)
+
             self._meta_entries.append({
                 "sname": sname,
                 "title_var": title_var,
                 "tags_var": tags_var,
                 "rating_var": rating_var,
+                "comment_var": comment_var,
             })
 
         self._meta_status.set(f"Loaded {len(rows)} stacks.")
@@ -983,15 +988,17 @@ class App:
             title = entry["title_var"].get().strip()
             tags = entry["tags_var"].get().strip()
             rating = entry["rating_var"].get().strip()
+            comment = entry["comment_var"].get().strip()
 
             if sname in row_by_name:
                 row_by_name[sname]["Title"] = title
                 row_by_name[sname]["Tags"] = tags
                 row_by_name[sname]["Rating"] = rating
+                row_by_name[sname]["Comment"] = comment
 
             stack_dir = self.source / sname
             if stack_dir.exists():
-                write_sidecar(stack_dir, title, tags=tags, rating=rating)
+                write_sidecar(stack_dir, title, tags=tags, rating=rating, comment=comment)
 
         save_stacks_csv(self.source, list(row_by_name.values()))
         self._meta_status.set("Saved ppsp_stacks.csv and sidecars.")

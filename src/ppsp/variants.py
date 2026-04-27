@@ -199,6 +199,14 @@ GRADING_PRESETS: Dict[str, List[str]] = {
         "-modulate", "100,105,100",
         "-unsharp", "0x1.5+1.0+0.05",
     ],
+    "dens": [                                                                   # deno + saturation pulled down; counters oversaturated TMOs
+        "-colorspace", "sRGB",
+        "-despeckle",
+        "-sigmoidal-contrast", "3,50%",
+        "-evaluate", "multiply", "1.03",
+        "-modulate", "100,88,100",
+        "-unsharp", "0x1.5+1.0+0.05",
+    ],
     "dvi1": [
         "-colorspace", "sRGB",
         "-despeckle",
@@ -247,6 +255,16 @@ CT_PRESETS: Dict[str, List[str]] = {
         "-channel", "R", "-gamma", "0.92",
         "-channel", "G", "-gamma", "0.95",
         "-channel", "B", "-gamma", "1.12", "+channel",
+    ],
+    "ctr1": [                                                                   # reduce red — counter red-tinted TMOs (e.g. bathroom photos)
+        "-channel", "R", "-gamma", "0.90",
+        "-channel", "G", "-gamma", "1.03",
+        "-channel", "B", "-gamma", "1.05", "+channel",
+    ],
+    "ctg1": [                                                                   # reduce green — counter green-tinted TMOs (e.g. rooms with green carpet)
+        "-channel", "R", "-gamma", "1.02",
+        "-channel", "G", "-gamma", "0.90",
+        "-channel", "B", "-gamma", "1.02", "+channel",
     ],
 }
 

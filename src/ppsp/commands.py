@@ -435,6 +435,12 @@ def cmd_name(
             rows = build_stacks_csv_rows(source, rows)
 
     elif not batch:
+        # First, apply any pre-existing CSV edits to disk so CSV is always authoritative.
+        existing_csv_path = source / STACKS_CSV
+        if existing_csv_path.exists() and any(r.get("Title") for r in existing):
+            _name_from_csv(source, existing_csv_path, rows, redo=redo)
+            rows = build_stacks_csv_rows(source, load_stacks_csv(source))
+
         # Interactive mode: offer one-by-one or CSV-edit.
         print("\nHow would you like to name stacks?")
         print("  [a] Name one-by-one in terminal (default)")
@@ -490,14 +496,15 @@ def _name_apply_one(
     redo: bool = False,
     tags: str = "",
     rating: str = "",
+    comment: str = "",
 ) -> None:
-    """Apply title/tags/rating to one stack: rename folder+files, write metadata+sidecar, update rows."""
+    """Apply title/tags/rating/comment to one stack: rename folder+files, write metadata+sidecar, update rows."""
     old_name = stack_dir.name
     new_dir = rename_stack(stack_dir, title, source)
     if new_dir is None:
         return
-    write_metadata_to_stack(new_dir, title, tags=tags, rating=rating)
-    write_sidecar(new_dir, title, tags=tags, rating=rating)
+    write_metadata_to_stack(new_dir, title, tags=tags, rating=rating, comment=comment)
+    write_sidecar(new_dir, title, tags=tags, rating=rating, comment=comment)
     shorthand = title_to_shorthand(title)
     for row in rows:
         if row["StackFolder"] == old_name or row["StackFolder"] == new_dir.name:
@@ -508,6 +515,8 @@ def _name_apply_one(
                 row["Tags"] = tags
             if rating:
                 row["Rating"] = rating
+            if comment:
+                row["Comment"] = comment
             break
     else:
         raw_count = sum(1 for f in new_dir.iterdir() if f.is_file() and f.suffix.lower() in _RAW_EXTS)
@@ -518,6 +527,7 @@ def _name_apply_one(
             "Shorthand": shorthand,
             "Tags": tags,
             "Rating": rating,
+            "Comment": comment,
             "GenerateSpecs": "",
         })
 
@@ -528,7 +538,7 @@ def _name_from_csv(
     rows: List[dict],
     redo: bool = False,
 ) -> None:
-    """Apply titles/tags/ratings from a stacks CSV to rows with a non-empty Title field."""
+    """Apply titles/tags/ratings/comments from a stacks CSV to rows with a non-empty Title field."""
     import csv as _csv
 
     if not csv_path.exists():
@@ -550,11 +560,16 @@ def _name_from_csv(
             continue
         tags = csv_row.get("Tags", "").strip()
         rating = csv_row.get("Rating", "").strip()
+        comment = csv_row.get("Comment", "").strip()
         prev = rows_by_folder.get(folder, {})
+        # Apply when metadata changed OR folder not yet renamed (CSV is authoritative).
+        shorthand = title_to_shorthand(title)
+        needs_rename = stack_dir.name.rsplit("-", 1)[-1] != shorthand
         if (prev.get("Title") == title and prev.get("Tags") == tags
-                and prev.get("Rating") == rating and not redo):
+                and prev.get("Rating") == rating and prev.get("Comment") == comment
+                and not redo and not needs_rename):
             continue
-        _name_apply_one(stack_dir, title, source, rows, redo=redo, tags=tags, rating=rating)
+        _name_apply_one(stack_dir, title, source, rows, redo=redo, tags=tags, rating=rating, comment=comment)
         # Refresh index after rename may have changed folder name
         rows_by_folder = {r["StackFolder"]: r for r in rows}
 
